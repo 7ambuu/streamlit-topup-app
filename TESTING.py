@@ -38,12 +38,15 @@ def upload_image_to_storage(file_uploader_object, bucket_name):
         return None
 
 def upload_payment_proof(transaction_id, uploaded_file):
-    proof_url = upload_image_to_storage(uploaded_file, "product-images") 
+    with st.spinner("Mengunggah bukti pembayaran..."):
+        proof_url = upload_image_to_storage(uploaded_file, "product-images") 
     if proof_url:
         supabase.table("transactions").update({"payment_proof_url": proof_url, "status": "Diproses"}).eq("id", transaction_id).execute()
         st.success("Bukti pembayaran berhasil diunggah!")
         if f"proof_{transaction_id}" in st.session_state: del st.session_state[f"proof_{transaction_id}"]
         st.rerun()
+    else:
+        st.error("Gagal mengunggah bukti pembayaran.")
 
 # --- Fungsi CRUD untuk Game ---
 def get_games():
@@ -69,6 +72,10 @@ def get_user_data(username):
     return response.data[0] if response.data else None
 def update_user_password(username, new_password):
     supabase.table("users").update({"password_hash": hash_password(new_password)}).eq("username", username).execute()
+def get_all_users_for_admin():
+    return supabase.table("users").select("*").neq("role", "admin").order("created_at", desc=True).execute().data
+def delete_user_by_id(user_id):
+    return supabase.table("users").delete().eq("id", user_id).execute()
 
 # --- Fungsi CRUD untuk Produk ---
 def add_product(game_id, paket, harga):
@@ -148,7 +155,8 @@ def login_register_menu():
             username = st.text_input("Username", placeholder="Masukkan username Anda")
             password = st.text_input("Password", type="password", placeholder="Masukkan password Anda")
             if st.form_submit_button("Login", use_container_width=True, type="primary"):
-                user = login_user(username, password)
+                with st.spinner("Mencocokkan data..."):
+                    user = login_user(username, password)
                 if user:
                     st.session_state["user"] = user['username']
                     st.session_state["role"] = user['role']
@@ -163,24 +171,47 @@ def login_register_menu():
             if st.form_submit_button("Daftar Sekarang", use_container_width=True):
                 if not reg_username or not reg_password:
                     st.error("Username dan password tidak boleh kosong.")
-                elif register_user(reg_username, reg_password):
-                    st.success("Registrasi berhasil! Silakan pindah ke tab Login untuk masuk.")
-                    time.sleep(2)
                 else:
-                    st.error("Username tersebut mungkin sudah digunakan.")
+                    with st.spinner("Membuat akun baru..."):
+                        success = register_user(reg_username, reg_password)
+                    if success:
+                        st.success("Registrasi berhasil! Silakan pindah ke tab Login untuk masuk.")
+                        time.sleep(2)
+                    else:
+                        st.error("Username tersebut mungkin sudah digunakan.")
 
 # --- UI: HALAMAN ADMIN ---
 def admin_page():
     st.sidebar.title("👑 ADMIN PANEL")
-    sub_menu = st.sidebar.radio("Menu", ["Daftar Transaksi", "Kelola Produk", "Kelola Game", "Kelola Ulasan", "Kotak Pesan"])
+    sub_menu = st.sidebar.radio("Menu", ["🧾 Daftar Transaksi", "🛍️ Kelola Produk", "🎮 Kelola Game", "📝 Kelola Ulasan", "💬 Kotak Pesan", "👥 Kelola User"])
     if st.sidebar.button("Logout", use_container_width=True): clear_session(); st.rerun()
-    st.title(f"Admin Dashboard: {sub_menu}")
+    st.title(f"Admin Dashboard")
 
     if 'editing_game_id' not in st.session_state: st.session_state.editing_game_id = None
     if 'editing_product_id' not in st.session_state: st.session_state.editing_product_id = None
     if 'selected_chat_user' not in st.session_state: st.session_state.selected_chat_user = None
 
-    if sub_menu == "Kotak Pesan":
+    if sub_menu == "👥 Kelola User":
+        st.subheader("👥 Manajemen Pengguna")
+        st.write("Lihat dan hapus pengguna dari sistem.")
+        all_users = get_all_users_for_admin()
+        if not all_users:
+            st.info("Tidak ada pengguna terdaftar selain admin.")
+        else:
+            for user in all_users:
+                with st.container(border=True):
+                    col1, col2, col3 = st.columns([2, 3, 1])
+                    with col1:
+                        st.markdown(f"**Username:** `{user['username']}`")
+                    with col2:
+                        st.markdown(f"**Tanggal Daftar:** `{user.get('created_at', 'N/A')}`")
+                    with col3:
+                        if st.button("Hapus User", key=f"del_user_{user['id']}", type="primary", use_container_width=True):
+                            with st.spinner(f"Menghapus user {user['username']}..."):
+                                delete_user_by_id(user['id'])
+                            st.success(f"User {user['username']} berhasil dihapus.")
+                            st.rerun()
+    elif sub_menu == "💬 Kotak Pesan":
         st.subheader("💬 Kotak Pesan dari Pengguna")
         conversations, ordered_users = get_conversations_for_admin()
         if not conversations:
@@ -191,12 +222,9 @@ def admin_page():
             st.markdown("**Percakapan:**")
             if st.session_state.selected_chat_user is None and ordered_users:
                 st.session_state.selected_chat_user = ordered_users[0]
-            
-            selected_user_from_radio = st.radio(
-                "Pilih pengguna:", options=ordered_users,
+            selected_user_from_radio = st.radio("Pilih pengguna:", options=ordered_users,
                 format_func=lambda u: f"💬 {u} ({conversations[u]['unread_count']} baru)" if conversations[u]['unread_count'] > 0 else f"✅ {u}",
-                label_visibility="collapsed"
-            )
+                label_visibility="collapsed")
             if selected_user_from_radio != st.session_state.get('selected_chat_user'):
                 st.session_state.selected_chat_user = selected_user_from_radio
                 st.rerun()
@@ -206,7 +234,6 @@ def admin_page():
                 st.info(f"Anda sedang membalas pesan dari **{chat_user}**.")
                 mark_messages_as_read(recipient="admin", sender=chat_user)
                 conversation = get_conversation("admin", chat_user)
-                
                 chat_container = st.container(height=400, border=True)
                 with chat_container:
                     for msg in conversation:
@@ -215,7 +242,6 @@ def admin_page():
                         with st.chat_message(role, avatar=avatar_icon):
                             st.write(msg['content'])
                             st.caption(f"{msg['created_at']}")
-
                 with st.form(key=f"reply_form_{chat_user}", clear_on_submit=True):
                     reply_content = st.text_area("Ketik balasan Anda:", height=100, label_visibility="collapsed", placeholder="Ketik balasan...")
                     if st.form_submit_button("Kirim Balasan", use_container_width=True, type="primary"):
@@ -223,8 +249,7 @@ def admin_page():
                         st.rerun()
             else:
                 st.write("Pilih percakapan untuk ditampilkan.")
-    
-    elif sub_menu == "Kelola Ulasan":
+    elif sub_menu == "📝 Kelola Ulasan":
         st.subheader("📝 Moderasi Ulasan Pengguna")
         all_reviews = get_all_reviews()
         if not all_reviews: st.info("Belum ada ulasan dari pengguna.")
@@ -246,8 +271,7 @@ def admin_page():
                                 toggle_review_visibility(review['id'], True); st.rerun()
                         if st.button("Hapus", key=f"del_rev_{review['id']}", type="primary", use_container_width=True):
                             delete_review(review['id']); st.rerun()
-                            
-    elif sub_menu == "Kelola Game":
+    elif sub_menu == "🎮 Kelola Game":
         st.subheader("🎮 Manajemen Game")
         with st.form("AddGameForm", clear_on_submit=True):
             st.markdown("**Tambah Game Baru**")
@@ -289,8 +313,7 @@ def admin_page():
                         with col3:
                             if st.button("Ubah", key=f"edit_game_{game['id']}", use_container_width=True): st.session_state.editing_game_id = game['id']; st.rerun()
                             if st.button("Hapus", key=f"del_game_{game['id']}", type="primary", use_container_width=True): delete_game(game['id']); st.success(f"Game {game['name']} dihapus."); st.rerun()
-                            
-    elif sub_menu == "Kelola Produk":
+    elif sub_menu == "🛍️ Kelola Produk":
         st.subheader("🛍️ Manajemen Produk")
         games_list = get_games()
         game_options = {game['id']: game['name'] for game in games_list}
@@ -335,8 +358,7 @@ def admin_page():
                                 if st.button("Ubah", key=f"edit_prod_{p['id']}", use_container_width=True): st.session_state.editing_product_id = p['id']; st.rerun()
                             with col2:
                                 if st.button("Hapus", key=f"del_prod_{p['id']}", use_container_width=True, type="primary"): delete_product(p['id']); st.rerun()
-
-    elif sub_menu == "Daftar Transaksi":
+    elif sub_menu == "🧾 Daftar Transaksi":
         st.subheader("🧾 Daftar Transaksi")
         transactions = get_all_transactions()
         if not transactions: st.info("Belum ada transaksi.")
@@ -379,10 +401,10 @@ def user_page():
     check_and_notify(st.session_state['user'])
     
     st.sidebar.title("MENU PENGGUNA")
-    page = st.sidebar.radio("Navigasi", ["Beranda & Top Up", "Riwayat Transaksi", "Profil Saya", "Kotak Pesan"])
+    page = st.sidebar.radio("Navigasi", ["🛒 Beranda & Top Up", "📜 Riwayat Transaksi", "👤 Profil Saya", "💬 Kotak Pesan"])
     if st.sidebar.button("Logout", use_container_width=True): clear_session(); st.rerun()
 
-    if page == "Kotak Pesan":
+    if page == "💬 Kotak Pesan":
         st.title("💬 Kotak Pesan")
         st.write("Kirim pesan atau lihat balasan dari Admin di sini.")
         username = st.session_state['user']
@@ -400,10 +422,11 @@ def user_page():
         with st.form("message_form", clear_on_submit=True):
             user_message = st.text_area("Ketik pesan Anda untuk Admin:", height=100, label_visibility="collapsed", placeholder="Ketik pesan Anda...")
             if st.form_submit_button("Kirim Pesan", use_container_width=True, type="primary"):
-                send_message(sender=username, recipient="admin", content=user_message)
+                with st.spinner("Mengirim pesan..."):
+                    send_message(sender=username, recipient="admin", content=user_message)
                 st.success("Pesan Anda telah terkirim!"); st.rerun()
 
-    elif page == "Profil Saya":
+    elif page == "👤 Profil Saya":
         st.title(f"👤 Profil Saya: {st.session_state['user']}")
         st.subheader("Ringkasan Aktivitas Anda")
         transactions = get_user_transactions(st.session_state['user'])
@@ -423,9 +446,12 @@ def user_page():
         with st.form("change_password_form", clear_on_submit=True):
             st.markdown("**Ubah Password**")
             new_pass = st.text_input("Password Baru", type="password")
-            if st.form_submit_button("Ganti Password"): update_user_password(st.session_state['user'], new_pass); st.success("Password berhasil diubah!")
+            if st.form_submit_button("Ganti Password", type="primary"):
+                with st.spinner("Menyimpan password baru..."):
+                    update_user_password(st.session_state['user'], new_pass)
+                st.success("Password berhasil diubah!")
     
-    elif page == "Beranda & Top Up":
+    elif page == "🛒 Beranda & Top Up":
         st.title("🛒 Beranda")
         if 'pending_payment' in st.session_state:
             pending_trans = st.session_state.pending_payment
@@ -446,10 +472,7 @@ def user_page():
             st.subheader("Game Populer")
             games = get_games()
             if not games: st.warning("Belum ada game yang tersedia."); return
-            
-            if search_term:
-                games = [g for g in games if search_term.lower() in g['name'].lower()]
-
+            if search_term: games = [g for g in games if search_term.lower() in g['name'].lower()]
             st.session_state.show_review_form = False
             st.session_state.visible_reviews_count = 5
             cols = st.columns(4)
@@ -466,9 +489,7 @@ def user_page():
         selected_game = st.session_state.user_selected_game
         st.title(f"{selected_game['name']}")
         if st.button("⬅️ Kembali ke Daftar Game"): 
-            st.session_state.user_selected_game = None
-            st.session_state.selected_product = None
-            st.rerun()
+            st.session_state.user_selected_game = None; st.session_state.selected_product = None; st.rerun()
         
         tab_beli, tab_ulasan, tab_info = st.tabs(["🛍️ Beli Produk", "⭐ Ulasan Pengguna", "ℹ️ Deskripsi"])
         with tab_beli:
@@ -491,10 +512,11 @@ def user_page():
                         nickname = st.text_input("Nickname Game")
                         game_id = st.text_input("User ID (Zone ID jika ada)")
                         pay_method = st.radio("Metode Pembayaran", ["DANA", "GOPAY"], horizontal=True)
-                        if st.form_submit_button("Pesan Sekarang", use_container_width=True):
+                        if st.form_submit_button("Pesan Sekarang", use_container_width=True, type="primary"):
                             if not nickname or not game_id: st.warning("Nickname dan User ID harus diisi!")
                             else:
-                                new_transaction = add_transaction(st.session_state["user"], selected_game['name'], product['paket'], product['harga'], f"{nickname}|{pay_method}", game_id)
+                                with st.spinner("Membuat pesanan..."):
+                                    new_transaction = add_transaction(st.session_state["user"], selected_game['name'], product['paket'], product['harga'], f"{nickname}|{pay_method}", game_id)
                                 st.session_state.pending_payment = new_transaction
                                 del st.session_state.selected_product; st.rerun()
                 else: st.info("Pilih paket di sebelah kiri untuk melanjutkan.")
@@ -503,7 +525,8 @@ def user_page():
             review_col1, review_col2 = st.columns([3,1])
             with review_col1: st.subheader(f"Ulasan Pengguna")
             with review_col2:
-                if st.button("✍️ Tulis Ulasan", use_container_width=True): st.session_state.show_review_form = not st.session_state.show_review_form
+                if st.button("✍️ Tulis Ulasan", use_container_width=True):
+                    st.session_state.show_review_form = not st.session_state.show_review_form
             if st.session_state.show_review_form:
                 with st.form("review_form", clear_on_submit=True, border=True):
                     rating_options = {1: "⭐", 2: "⭐⭐", 3: "⭐⭐⭐", 4: "⭐⭐⭐⭐", 5: "⭐⭐⭐⭐⭐"}
@@ -511,7 +534,8 @@ def user_page():
                     comment = st.text_area("Komentar Anda:")
                     if st.form_submit_button("Kirim Ulasan", type="primary"):
                         if rating and comment:
-                            add_review(selected_game['id'], st.session_state['user'], rating, comment)
+                            with st.spinner("Mengirim ulasan..."):
+                                add_review(selected_game['id'], st.session_state['user'], rating, comment)
                             st.success("Terima kasih atas ulasan Anda!"); st.session_state.show_review_form = False; st.rerun()
                         else: st.warning("Harap isi rating dan komentar.")
             game_reviews = get_reviews_for_game(selected_game['id'])
@@ -534,11 +558,10 @@ def user_page():
         with tab_info:
             st.subheader(f"Tentang {selected_game['name']}")
             st.write(selected_game['description'] or "Tidak ada deskripsi untuk game ini.")
-            st.markdown("---")
-            st.subheader("Cara Menemukan User ID")
+            st.markdown("---"); st.subheader("Cara Menemukan User ID")
             st.info("Setiap game memiliki cara yang berbeda untuk menemukan User ID. Umumnya, Anda bisa menemukannya di dalam halaman profil di dalam game tersebut. Pastikan Anda memasukkan ID dengan benar untuk menghindari kesalahan top up.")
 
-    elif page == "Riwayat Transaksi":
+    elif page == "📜 Riwayat Transaksi":
         st.title("📜 Riwayat Transaksi Anda")
         transactions = get_user_transactions(st.session_state["user"])
         if not transactions: st.info("Anda belum memiliki riwayat transaksi.")
