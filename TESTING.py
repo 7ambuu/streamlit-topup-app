@@ -108,8 +108,7 @@ def delete_review(review_id):
 def clear_session():
     keys_to_clear = ["user", "role", "user_selected_game", "selected_product", "last_statuses", "pending_payment", "editing_game_id", "editing_product_id"]
     for key in keys_to_clear:
-        if key in st.session_state:
-            del st.session_state[key]
+        if key in st.session_state: del st.session_state[key]
 
 # --- UI: HALAMAN LOGIN & REGISTRASI ---
 def login_register_menu():
@@ -125,8 +124,7 @@ def login_register_menu():
             with st.form("RegisterForm"):
                 username = st.text_input("Username")
                 password = st.text_input("Password", type="password")
-                submitted = st.form_submit_button("Register", use_container_width=True)
-                if submitted:
+                if st.form_submit_button("Register", use_container_width=True):
                     if not username or not password: st.error("Username dan password tidak boleh kosong.")
                     elif register_user(username, password): st.success("Registrasi berhasil! Silakan pindah ke menu Login.")
                     else: st.error("Username mungkin sudah digunakan.")
@@ -135,8 +133,7 @@ def login_register_menu():
             with st.form("LoginForm"):
                 username = st.text_input("Username")
                 password = st.text_input("Password", type="password")
-                submitted = st.form_submit_button("Login", use_container_width=True)
-                if submitted:
+                if st.form_submit_button("Login", use_container_width=True):
                     user = login_user(username, password)
                     if user:
                         st.session_state["user"] = user['username']
@@ -150,7 +147,7 @@ def admin_page():
     st.sidebar.title("👑 ADMIN PANEL")
     sub_menu = st.sidebar.radio("Menu", ["Daftar Transaksi", "Kelola Produk", "Kelola Game", "Kelola Ulasan"])
     if st.sidebar.button("Logout", use_container_width=True): clear_session(); st.rerun()
-    st.title("Admin Dashboard")
+    st.title(f"Admin Dashboard: {sub_menu}")
 
     if 'editing_game_id' not in st.session_state: st.session_state.editing_game_id = None
     if 'editing_product_id' not in st.session_state: st.session_state.editing_product_id = None
@@ -159,8 +156,7 @@ def admin_page():
         st.subheader("📝 Moderasi Ulasan Pengguna")
         st.write("Anda bisa menyembunyikan atau menghapus ulasan yang tidak pantas.")
         all_reviews = get_all_reviews()
-        if not all_reviews:
-            st.info("Belum ada ulasan dari pengguna.")
+        if not all_reviews: st.info("Belum ada ulasan dari pengguna.")
         else:
             for review in all_reviews:
                 game_name = review['games']['name'] if review.get('games') else "N/A"
@@ -169,8 +165,7 @@ def admin_page():
                     with col1:
                         st.markdown(f"**{review['username']}** @ **{game_name}** ({'⭐' * review['rating']})")
                         st.caption(f"Komentar: *{review['comment']}*")
-                        if not review['is_visible']:
-                            st.warning("Ulasan ini sedang disembunyikan.", icon="⚠️")
+                        if not review['is_visible']: st.warning("Ulasan ini sedang disembunyikan.", icon="⚠️")
                     with col2:
                         if review['is_visible']:
                             if st.button("Sembunyikan", key=f"hide_{review['id']}", use_container_width=True):
@@ -211,11 +206,9 @@ def admin_page():
                                 if st.form_submit_button("Simpan", type="primary", use_container_width=True):
                                     logo_url = game['logo_url']
                                     if new_logo: logo_url = upload_image_to_storage(new_logo, "product-images")
-                                    update_game(game['id'], new_name, new_desc, logo_url)
-                                    st.success("Game diperbarui."); st.session_state.editing_game_id = None; st.rerun()
+                                    update_game(game['id'], new_name, new_desc, logo_url); st.success("Game diperbarui."); st.session_state.editing_game_id = None; st.rerun()
                             with col2:
-                                if st.form_submit_button("Batal", use_container_width=True):
-                                    st.session_state.editing_game_id = None; st.rerun()
+                                if st.form_submit_button("Batal", use_container_width=True): st.session_state.editing_game_id = None; st.rerun()
                 else:
                     with st.container(border=True):
                         col1, col2, col3 = st.columns([1, 4, 1.2])
@@ -233,7 +226,7 @@ def admin_page():
         else:
             with st.form("AddProductForm", clear_on_submit=True):
                 st.markdown("**Tambah Produk Baru**")
-                selected_game_id = st.selectbox("Pilih Game", options=list(game_options.keys()), format_func=lambda x: game_options[x])
+                selected_game_id = st.selectbox("Pilih Game untuk Produk Ini", options=list(game_options.keys()), format_func=lambda x: game_options[x])
                 paket = st.text_input("Nama Paket (e.g., 100 Diamonds)")
                 harga = st.number_input("Harga (Rp)", min_value=1000, step=500)
                 if st.form_submit_button("Tambah Produk", type="primary"):
@@ -304,7 +297,6 @@ def admin_page():
 
 # --- UI: HALAMAN USER ---
 def user_page():
-    st_autorefresh(interval=7000, key="global_user_refresh")
     def check_and_notify(username):
         if 'last_statuses' not in st.session_state:
             st.session_state.last_statuses = {str(t['id']): t['status'] for t in get_user_transactions(username)}
@@ -330,6 +322,7 @@ def user_page():
             if st.form_submit_button("Ganti Password"): update_user_password(st.session_state['user'], new_pass); st.success("Password berhasil diubah!")
         st.markdown("---")
         st.subheader("Simpan ID Game Default")
+        st.caption("Isi ID game Anda agar terisi otomatis saat melakukan top up.")
         with st.form("save_id_form"):
             default_ml_id = user_data.get('default_ml_id', '') if user_data else ""
             default_ff_id = user_data.get('default_ff_id', '') if user_data else ""
@@ -364,22 +357,6 @@ def user_page():
         if st.button("⬅️ Pilih Game Lain"): st.session_state.user_selected_game = None; st.session_state.selected_product = None; st.rerun()
         st.markdown("---")
         
-        # Tampilkan Ulasan SEBELUM daftar produk
-        st.subheader(f"Ulasan untuk {selected_game['name']}")
-        game_reviews = get_reviews_for_game(selected_game['id'])
-        if not game_reviews:
-            st.info("Jadilah yang pertama memberikan ulasan untuk game ini!")
-        else:
-            ratings = [r['rating'] for r in game_reviews]
-            avg_rating = np.mean(ratings) if ratings else 0
-            st.write(f"**Rating Rata-rata:** {'⭐' * int(round(avg_rating))} ({avg_rating:.1f}/5 dari {len(ratings)} ulasan)")
-            for review in game_reviews:
-                with st.container(border=True):
-                    st.markdown(f"**{review['username']}** - `{'⭐' * review['rating']}`")
-                    st.caption(f"Komentar: *{review['comment']}*")
-
-        st.markdown("---")
-
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("2. Pilih Paket Top Up")
@@ -408,17 +385,32 @@ def user_page():
             else: st.info("Pilih paket di sebelah kiri untuk melanjutkan.")
         
         st.markdown("---")
+        st.subheader(f"Ulasan Pengguna untuk {selected_game['name']}")
+        game_reviews = get_reviews_for_game(selected_game['id'])
+        if not game_reviews:
+            st.info("Jadilah yang pertama memberikan ulasan untuk game ini!")
+        else:
+            ratings = [r['rating'] for r in game_reviews]
+            avg_rating = np.mean(ratings) if ratings else 0
+            st.write(f"**Rating Rata-rata:** {'⭐' * int(round(avg_rating))} ({avg_rating:.1f}/5 dari {len(ratings)} ulasan)")
+            for review in game_reviews:
+                with st.container(border=True):
+                    st.markdown(f"**{review['username']}** - `{'⭐' * review['rating']}`")
+                    st.caption(f"Pada: {review['created_at']}")
+                    st.write(review['comment'])
+        
         with st.expander("Tulis Ulasan Anda untuk Game Ini"):
             with st.form("review_form", clear_on_submit=True):
-                rating_options = {1: "1 Bintang ⭐", 2: "2 Bintang ⭐⭐", 3: "3 Bintang ⭐⭐⭐", 4: "4 Bintang ⭐⭐⭐⭐", 5: "5 Bintang ⭐⭐⭐⭐⭐"}
-                rating = st.selectbox("Beri Rating:", options=list(rating_options.keys()), format_func=lambda x: rating_options[x])
+                rating_options = {1: "⭐", 2: "⭐⭐", 3: "⭐⭐⭐", 4: "⭐⭐⭐⭐", 5: "⭐⭐⭐⭐⭐"}
+                rating = st.select_slider("Beri Rating:", options=list(rating_options.keys()), format_func=lambda x: rating_options[x], value=5)
                 comment = st.text_area("Komentar Anda:")
                 if st.form_submit_button("Kirim Ulasan", type="primary"):
                     if rating and comment:
                         add_review(selected_game['id'], st.session_state['user'], rating, comment)
                         st.success("Terima kasih atas ulasan Anda!"); st.rerun()
-                    else: st.warning("Harap isi rating dan komentar.")
-    
+                    else:
+                        st.warning("Harap isi rating dan komentar.")
+
     elif page == "Riwayat Transaksi":
         st.title("📜 Riwayat Transaksi Anda")
         transactions = get_user_transactions(st.session_state["user"])
@@ -441,13 +433,20 @@ def user_page():
 # --- LOGIKA UTAMA APLIKASI ---
 def main():
     st.set_page_config(page_title="TopUpGame Online", layout="wide", initial_sidebar_state="expanded")
-    if "user" not in st.session_state: login_register_menu()
+    if "user" not in st.session_state:
+        login_register_menu()
     else:
+        # Auto-Refresh Global dengan delay 3 detik
+        st_autorefresh(interval=3000, key="global_refresh")
+
         st.sidebar.success(f"Login sebagai: **{st.session_state['user']}**")
         st.sidebar.caption(f"Role: {st.session_state['role']}")
         st.sidebar.markdown("---")
-        if st.session_state["role"] == "admin": admin_page()
-        else: user_page()
+        
+        if st.session_state["role"] == "admin":
+            admin_page()
+        else:
+            user_page()
 
 if __name__ == "__main__":
     main()
