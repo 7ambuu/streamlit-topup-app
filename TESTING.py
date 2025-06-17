@@ -316,6 +316,7 @@ def user_page():
             if st.form_submit_button("Ganti Password"): update_user_password(st.session_state['user'], new_pass); st.success("Password berhasil diubah!")
         st.markdown("---")
         st.subheader("Simpan ID Game Default")
+        st.caption("Isi ID game Anda agar terisi otomatis saat melakukan top up.")
         with st.form("save_id_form"):
             default_ml_id = user_data.get('default_ml_id', '') if user_data else ""
             default_ff_id = user_data.get('default_ff_id', '') if user_data else ""
@@ -340,17 +341,15 @@ def user_page():
             st.subheader("1. Pilih Game Anda")
             games = get_games()
             if not games: st.warning("Belum ada game yang tersedia."); return
-            # Reset state saat kembali ke halaman pilih game
             st.session_state.show_review_form = False
             st.session_state.visible_reviews_count = 5
-
             cols = st.columns(len(games) or 1)
             for i, game in enumerate(games):
                 with cols[i]:
                     st.image(game['logo_url']);
                     if st.button(game['name'], use_container_width=True, key=f"game_{game['id']}"): 
                         st.session_state.user_selected_game = game
-                        st.session_state.visible_reviews_count = 5 # Reset saat pilih game baru
+                        st.session_state.visible_reviews_count = 5
                         st.rerun()
             return
 
@@ -388,7 +387,6 @@ def user_page():
         
         st.markdown("---")
         
-        # --- BLOK ULASAN YANG BARU ---
         review_col1, review_col2 = st.columns([3,1])
         with review_col1:
             st.subheader(f"Ulasan Pengguna")
@@ -411,20 +409,9 @@ def user_page():
         if not game_reviews:
             st.info("Jadilah yang pertama memberikan ulasan untuk game ini!")
         else:
-            rating_col1, rating_col2 = st.columns([1,2])
-            with rating_col1:
-                ratings_list = [r['rating'] for r in game_reviews]
-                avg_rating = np.mean(ratings_list) if ratings_list else 0
-                st.metric(label=f"Rating Rata-rata ({len(ratings_list)} ulasan)", value=f"{avg_rating:.1f} ⭐")
-            with rating_col2:
-                rating_counts = {i: ratings_list.count(i) for i in range(1, 6)}
-                total_reviews = len(ratings_list)
-                for star in range(5, 0, -1):
-                    count = rating_counts.get(star, 0)
-                    percentage = (count / total_reviews * 100) if total_reviews > 0 else 0
-                    st.text(f"{star} Bintang {'⭐'*star}")
-                    st.progress(int(percentage), text=f"{count} suara")
-
+            ratings_list = [r['rating'] for r in game_reviews]
+            avg_rating = np.mean(ratings_list) if ratings_list else 0
+            st.markdown(f"**Rating Rata-rata:** {'⭐' * int(round(avg_rating))} ({avg_rating:.1f} / 5 dari {len(ratings_list)} ulasan)")
             st.markdown("---")
             if 'visible_reviews_count' not in st.session_state: st.session_state.visible_reviews_count = 5
             reviews_to_show = game_reviews[:st.session_state.visible_reviews_count]
@@ -446,7 +433,7 @@ def user_page():
             for t in transactions:
                 nickname, metode = (t['user_nickname'].split("|", 1) + ["-"])[:2] if t.get('user_nickname') else (t.get('user_nickname'), "-")
                 with st.container(border=True):
-                    st.write(f"#### {t['paket']} (ID: {t['id']})")
+                    st.write(f"#### {t['paket']} (ID Transaksi: {t['id']})")
                     st.write(f"**Game:** {t['game']} | **Harga:** Rp {t['harga']:,}")
                     status_color = {"Selesai": "green", "Diproses": "orange", "Gagal": "red"}.get(t['status'], "gray")
                     st.write(f"Status: **<span style='color:{status_color};'>{t['status']}</span>**", unsafe_allow_html=True)
