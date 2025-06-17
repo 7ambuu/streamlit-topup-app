@@ -208,7 +208,8 @@ def admin_page():
                                     if new_logo: logo_url = upload_image_to_storage(new_logo, "product-images")
                                     update_game(game['id'], new_name, new_desc, logo_url); st.success("Game diperbarui."); st.session_state.editing_game_id = None; st.rerun()
                             with col2:
-                                if st.form_submit_button("Batal", use_container_width=True): st.session_state.editing_game_id = None; st.rerun()
+                                if st.form_submit_button("Batal", use_container_width=True):
+                                    st.session_state.editing_game_id = None; st.rerun()
                 else:
                     with st.container(border=True):
                         col1, col2, col3 = st.columns([1, 4, 1.2])
@@ -436,8 +437,8 @@ def main():
     if "user" not in st.session_state:
         login_register_menu()
     else:
-        # Auto-Refresh Global dengan delay 3 detik
-        st_autorefresh(interval=3000, key="global_refresh")
+        # Auto-Refresh Global dengan delay 7 detik yang lebih nyaman
+        st_autorefresh(interval=7000, key="global_refresh")
 
         st.sidebar.success(f"Login sebagai: **{st.session_state['user']}**")
         st.sidebar.caption(f"Role: {st.session_state['role']}")
