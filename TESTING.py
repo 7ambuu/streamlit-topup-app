@@ -7,6 +7,7 @@ from supabase import create_client, Client
 from io import BytesIO
 import numpy as np
 import time
+from collections import Counter
 
 # --- KONFIGURASI APLIKASI ---
 try:
@@ -68,7 +69,6 @@ def get_user_data(username):
     return response.data[0] if response.data else None
 def update_user_password(username, new_password):
     supabase.table("users").update({"password_hash": hash_password(new_password)}).eq("username", username).execute()
-# Fungsi update_user_game_ids dihapus karena sudah tidak relevan
 
 # --- Fungsi CRUD untuk Produk ---
 def add_product(game_id, paket, harga):
@@ -308,14 +308,37 @@ def user_page():
     if st.sidebar.button("Logout", use_container_width=True): clear_session(); st.rerun()
 
     if page == "Profil Saya":
-        st.title("👤 Profil Saya")
-        st.subheader("Ubah Password")
-        with st.form("change_password_form", clear_on_submit=True):
-            new_pass = st.text_input("Password Baru", type="password")
-            if st.form_submit_button("Ganti Password"): update_user_password(st.session_state['user'], new_pass); st.success("Password berhasil diubah!")
-        st.markdown("---")
-        st.info("Fitur Simpan ID Game Default telah dihapus.")
+        st.title(f"👤 Profil Saya: {st.session_state['user']}")
+        
+        st.subheader("Ringkasan Aktivitas Anda")
+        transactions = get_user_transactions(st.session_state['user'])
+        completed_trans = [t for t in transactions if t['status'] == 'Selesai']
 
+        total_completed_trans = len(completed_trans)
+        total_spending = sum(t['harga'] for t in completed_trans)
+        fav_game = "Belum ada"
+        if completed_trans:
+            game_list = [t['game'] for t in completed_trans]
+            if game_list:
+                fav_game = Counter(game_list).most_common(1)[0][0]
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Transaksi Selesai", f"{total_completed_trans} Pesanan")
+        with col2:
+            st.metric("Total Pengeluaran", f"Rp {total_spending:,}")
+        with col3:
+            st.metric("Game Favorit", fav_game)
+
+        st.markdown("---")
+        st.subheader("Pengaturan Akun")
+        with st.form("change_password_form", clear_on_submit=True):
+            st.markdown("**Ubah Password**")
+            new_pass = st.text_input("Password Baru", type="password")
+            if st.form_submit_button("Ganti Password"): 
+                update_user_password(st.session_state['user'], new_pass)
+                st.success("Password berhasil diubah!")
+    
     elif page == "Pesan Top Up":
         st.title("🛒 Pilih & Pesan Top Up")
         if 'pending_payment' in st.session_state:
