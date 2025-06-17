@@ -17,50 +17,38 @@ except (KeyError, AttributeError):
 
 # --- FUNGSI HELPER & CRUD ---
 def hash_password(password):
-    """Hashing password menggunakan SHA256."""
     return hashlib.sha256(password.encode()).hexdigest()
 
 def upload_image_to_storage(file_uploader_object, bucket_name):
-    """Fungsi generik untuk upload gambar ke Supabase Storage."""
     try:
         file_bytes = file_uploader_object.getvalue()
         unique_filename = f"{uuid.uuid4().hex}.jpg"
-        
         img = Image.open(file_uploader_object)
-        if img.mode == 'RGBA':
-            img = img.convert('RGB')
-        
+        if img.mode == 'RGBA': img = img.convert('RGB')
         buf = BytesIO()
         img.save(buf, format='JPEG')
         file_bytes = buf.getvalue()
-
         supabase.storage.from_(bucket_name).upload(unique_filename, file_bytes, {'contentType': 'image/jpeg'})
-        
         return supabase.storage.from_(bucket_name).get_public_url(unique_filename)
     except Exception as e:
         st.error(f"Error saat mengupload file: {e}")
         return None
 
 def upload_payment_proof(transaction_id, uploaded_file):
-    """Uploads payment proof dan update record transaksi."""
     proof_url = upload_image_to_storage(uploaded_file, "product-images") 
     if proof_url:
-        supabase.table("transactions").update({
-            "payment_proof_url": proof_url, 
-            "status": "Diproses"
-        }).eq("id", transaction_id).execute()
-        st.success("Bukti pembayaran berhasil diunggah! Status pesanan diubah menjadi 'Diproses'.")
-        if f"proof_{transaction_id}" in st.session_state:
-            del st.session_state[f"proof_{transaction_id}"]
+        supabase.table("transactions").update({"payment_proof_url": proof_url, "status": "Diproses"}).eq("id", transaction_id).execute()
+        st.success("Bukti pembayaran berhasil diunggah!")
+        if f"proof_{transaction_id}" in st.session_state: del st.session_state[f"proof_{transaction_id}"]
         st.rerun()
-    else:
-        st.error("Gagal mengunggah bukti pembayaran.")
 
 # --- Fungsi CRUD untuk Game ---
 def get_games():
     return supabase.table("games").select("*").order("name").execute().data
 def add_game(name, description, logo_url):
     return supabase.table("games").insert({"name": name, "description": description, "logo_url": logo_url}).execute()
+def update_game(game_id, name, description, logo_url):
+    return supabase.table("games").update({"name": name, "description": description, "logo_url": logo_url}).eq("id", game_id).execute()
 def delete_game(game_id):
     return supabase.table("games").delete().eq("id", game_id).execute()
 
@@ -82,12 +70,12 @@ def update_user_game_ids(username, ml_id, ff_id):
     supabase.table("users").update({"default_ml_id": ml_id, "default_ff_id": ff_id}).eq("username", username).execute()
 
 # --- Fungsi CRUD untuk Produk ---
-def add_product(game_id, paket, harga, image_path):
-    supabase.table("products").insert({"game_id": game_id, "paket": paket, "harga": harga, "image_path": image_path}).execute()
+def add_product(game_id, paket, harga):
+    supabase.table("products").insert({"game_id": game_id, "paket": paket, "harga": harga}).execute()
 def get_products_with_game_info():
-    return supabase.table("products").select("*, games(name, logo_url)").execute().data
-def update_product(product_id, paket, harga, image_path):
-    supabase.table("products").update({"paket": paket, "harga": harga, "image_path": image_path}).eq("id", product_id).execute()
+    return supabase.table("products").select("*, games(name, logo_url)").order("id", desc=True).execute().data
+def update_product(product_id, game_id, paket, harga):
+    return supabase.table("products").update({"game_id": game_id, "paket": paket, "harga": harga}).eq("id", product_id).execute()
 def delete_product(product_id):
     supabase.table("products").delete().eq("id", product_id).execute()
 
@@ -104,7 +92,7 @@ def update_transaction_status(trans_id, status):
 
 # --- MANAJEMEN SESSION STATE ---
 def clear_session():
-    keys_to_clear = ["user", "role", "user_selected_game", "selected_product", "last_statuses", "pending_payment"]
+    keys_to_clear = ["user", "role", "user_selected_game", "selected_product", "last_statuses", "pending_payment", "editing_game_id", "editing_product_id"]
     for key in keys_to_clear:
         if key in st.session_state:
             del st.session_state[key]
@@ -150,15 +138,18 @@ def admin_page():
     if st.sidebar.button("Logout", use_container_width=True): clear_session(); st.rerun()
     st.title("Admin Dashboard")
 
+    if 'editing_game_id' not in st.session_state: st.session_state.editing_game_id = None
+    if 'editing_product_id' not in st.session_state: st.session_state.editing_product_id = None
+
     if sub_menu == "Kelola Game":
         st.subheader("🎮 Manajemen Game")
+        st.write("Tambahkan, ubah, atau hapus game yang akan dijual di toko Anda.")
         with st.form("AddGameForm", clear_on_submit=True):
-            st.write("Tambahkan game baru yang akan dijual.")
+            st.markdown("**Tambah Game Baru**")
             game_name = st.text_input("Nama Game")
             game_desc = st.text_area("Deskripsi Singkat")
             game_logo = st.file_uploader("Upload Logo Game", type=["png", "jpg", "jpeg"])
-            submitted = st.form_submit_button("Tambah Game")
-            if submitted:
+            if st.form_submit_button("Tambah Game", type="primary"):
                 if not all([game_name, game_logo]): st.warning("Nama Game dan Logo wajib diisi.")
                 else:
                     logo_url = upload_image_to_storage(game_logo, "product-images")
@@ -169,12 +160,31 @@ def admin_page():
         if not games: st.info("Belum ada game yang ditambahkan.")
         else:
             for game in games:
-                with st.expander(f"**{game['name']}**"):
-                    col1, col2 = st.columns([1,3])
-                    with col1: st.image(game['logo_url'], width=100)
-                    with col2: st.write(f"**Deskripsi:** {game['description'] or 'Tidak ada deskripsi.'}"); st.write(f"**ID:** {game['id']}")
-                    if st.button("Hapus Game Ini", key=f"del_game_{game['id']}", type="primary"):
-                        delete_game(game['id']); st.success(f"Game {game['name']} dan produk terkait telah dihapus."); st.rerun()
+                if st.session_state.editing_game_id == game['id']:
+                    with st.container(border=True):
+                        with st.form(key=f"edit_game_{game['id']}"):
+                            st.write(f"**Mengubah Game: {game['name']}**")
+                            new_name = st.text_input("Nama Game", value=game['name'])
+                            new_desc = st.text_area("Deskripsi", value=game['description'])
+                            new_logo = st.file_uploader("Ganti Logo (Kosongkan jika tidak ingin diubah)")
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                if st.form_submit_button("Simpan Perubahan", type="primary", use_container_width=True):
+                                    logo_url = game['logo_url']
+                                    if new_logo: logo_url = upload_image_to_storage(new_logo, "product-images")
+                                    update_game(game['id'], new_name, new_desc, logo_url)
+                                    st.success("Game berhasil diperbarui."); st.session_state.editing_game_id = None; st.rerun()
+                            with col2:
+                                if st.form_submit_button("Batal", use_container_width=True):
+                                    st.session_state.editing_game_id = None; st.rerun()
+                else:
+                    with st.container(border=True):
+                        col1, col2, col3 = st.columns([1, 4, 1.2])
+                        with col1: st.image(game['logo_url'], width=70)
+                        with col2: st.markdown(f"**{game['name']}**"); st.caption(game['description'] or "Tidak ada deskripsi.")
+                        with col3:
+                            if st.button("Ubah", key=f"edit_game_{game['id']}", use_container_width=True): st.session_state.editing_game_id = game['id']; st.rerun()
+                            if st.button("Hapus", key=f"del_game_{game['id']}", type="primary", use_container_width=True): delete_game(game['id']); st.success(f"Game {game['name']} dihapus."); st.rerun()
 
     elif sub_menu == "Kelola Produk":
         st.subheader("🛍️ Manajemen Produk")
@@ -183,27 +193,44 @@ def admin_page():
         if not game_options: st.warning("Tidak bisa menambah produk. Silakan tambah data game terlebih dahulu di menu 'Kelola Game'.")
         else:
             with st.form("AddProductForm", clear_on_submit=True):
-                selected_game_id = st.selectbox("Pilih Game", options=list(game_options.keys()), format_func=lambda x: game_options[x])
+                st.markdown("**Tambah Produk Baru**")
+                selected_game_id = st.selectbox("Pilih Game untuk Produk Ini", options=list(game_options.keys()), format_func=lambda x: game_options[x])
                 paket = st.text_input("Nama Paket (e.g., 100 Diamonds)")
                 harga = st.number_input("Harga (Rp)", min_value=1000, step=500)
-                image_path = st.file_uploader("Upload Gambar Ikon Paket", type=["png", "jpg", "jpeg"])
-                submitted = st.form_submit_button("Tambah Produk")
-                if submitted:
-                    if not all([selected_game_id, paket, harga, image_path]): st.warning("Semua kolom wajib diisi.")
-                    else:
-                        product_image_url = upload_image_to_storage(image_path, "product-images")
-                        if product_image_url: add_product(selected_game_id, paket, harga, product_image_url); st.success("Produk berhasil ditambahkan."); st.rerun()
+                if st.form_submit_button("Tambah Produk", type="primary"):
+                    if not all([selected_game_id, paket, harga]): st.warning("Semua kolom wajib diisi.")
+                    else: add_product(selected_game_id, paket, harga); st.success("Produk berhasil ditambahkan."); st.rerun()
             st.markdown("---")
             st.subheader("Daftar Produk Saat Ini")
             all_products = get_products_with_game_info()
             if not all_products: st.info("Belum ada produk.")
             else:
                 for p in all_products:
-                    game_name = p['games']['name'] if p.get('games') else "Tanpa Game"
-                    with st.expander(f"**{game_name}** - {p['paket']} (Rp {p['harga']:,})"):
-                         st.write(f"ID Produk: {p['id']}")
-                         if st.button("Hapus Produk", key=f"del_prod_{p['id']}", type="primary"):
-                            delete_product(p['id']); st.rerun()
+                    if st.session_state.editing_product_id == p['id']:
+                        with st.container(border=True):
+                             with st.form(key=f"edit_prod_{p['id']}"):
+                                st.write(f"**Mengubah Produk: {p['paket']}**")
+                                game_ids = list(game_options.keys())
+                                current_game_index = game_ids.index(p['game_id']) if p.get('game_id') in game_ids else 0
+                                new_game_id = st.selectbox("Game", options=game_ids, format_func=lambda x: game_options[x], index=current_game_index)
+                                new_paket = st.text_input("Nama Paket", value=p['paket'])
+                                new_harga = st.number_input("Harga", value=p['harga'])
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    if st.form_submit_button("Simpan Perubahan", type="primary", use_container_width=True):
+                                        update_product(p['id'], new_game_id, new_paket, new_harga); st.success("Produk diperbarui."); st.session_state.editing_product_id = None; st.rerun()
+                                with col2:
+                                    if st.form_submit_button("Batal", use_container_width=True): st.session_state.editing_product_id = None; st.rerun()
+                    else:
+                        game_name = p['games']['name'] if p.get('games') else "Tanpa Game"
+                        with st.container(border=True):
+                            st.write(f"**{game_name}** - {p['paket']}")
+                            st.write(f"Harga: Rp {p['harga']:,} | ID Produk: {p['id']}")
+                            col1, col2 = st.columns([1, 1])
+                            with col1:
+                                if st.button("Ubah", key=f"edit_prod_{p['id']}", use_container_width=True): st.session_state.editing_product_id = p['id']; st.rerun()
+                            with col2:
+                                if st.button("Hapus", key=f"del_prod_{p['id']}", use_container_width=True, type="primary"): delete_product(p['id']); st.rerun()
 
     elif sub_menu == "Daftar Transaksi":
         st.subheader("🧾 Daftar Transaksi")
@@ -217,10 +244,8 @@ def admin_page():
                     col1, col2 = st.columns([1, 2])
                     with col1:
                         st.markdown("**Bukti Pembayaran:**")
-                        if t.get('payment_proof_url'):
-                            st.image(t['payment_proof_url'], use_container_width=True)
-                        else:
-                            st.caption("Belum ada bukti bayar.")
+                        if t.get('payment_proof_url'): st.image(t['payment_proof_url'], use_container_width=True)
+                        else: st.caption("Belum ada bukti bayar.")
                     with col2:
                         st.markdown(f"**Waktu Pesan:** `{t['waktu']}`")
                         st.markdown(f"**Nickname:** `{nickname}` ({t['user_game_id']})")
@@ -231,16 +256,12 @@ def admin_page():
                     form_col1, form_col2 = st.columns(2)
                     with form_col1:
                         status_options = ["Menunggu", "Diproses", "Selesai", "Gagal"]
-                        try:
-                            current_index = status_options.index(t['status'])
-                        except ValueError:
-                            current_index = 0
+                        current_index = status_options.index(t['status']) if t['status'] in status_options else 0
                         new_status = st.selectbox("Ubah Status ke:", options=status_options, index=current_index, key=f"status_{t['id']}")
                     with form_col2:
                         st.write("") 
                         st.write("")
-                        if st.button("Simpan Perubahan", key=f"up_{t['id']}", use_container_width=True, type="primary"):
-                            update_transaction_status(t['id'], new_status); st.rerun()
+                        if st.button("Simpan Perubahan", key=f"up_{t['id']}", use_container_width=True, type="primary"): update_transaction_status(t['id'], new_status); st.rerun()
 
 # --- UI: HALAMAN USER ---
 def user_page():
@@ -253,8 +274,7 @@ def user_page():
         current_statuses = {str(t['id']): t['status'] for t in latest_transactions}
         for trans_id, new_status in current_statuses.items():
             old_status = st.session_state.last_statuses.get(trans_id)
-            if old_status is not None and old_status != new_status:
-                st.toast(f"🎉 Pesanan #{trans_id} kini berstatus: **{new_status}**", icon="🔔")
+            if old_status is not None and old_status != new_status: st.toast(f"🎉 Pesanan #{trans_id} kini berstatus: **{new_status}**", icon="🔔")
             st.session_state.last_statuses[trans_id] = new_status
     check_and_notify(st.session_state['user'])
     
