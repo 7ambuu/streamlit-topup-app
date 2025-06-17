@@ -217,8 +217,10 @@ def admin_page():
                     col1, col2 = st.columns([1, 2])
                     with col1:
                         st.markdown("**Bukti Pembayaran:**")
-                        if t.get('payment_proof_url'): st.image(t['payment_proof_url'], use_column_width=True)
-                        else: st.caption("Belum ada bukti bayar.")
+                        if t.get('payment_proof_url'):
+                            st.image(t['payment_proof_url'], use_container_width=True)
+                        else:
+                            st.caption("Belum ada bukti bayar.")
                     with col2:
                         st.markdown(f"**Waktu Pesan:** `{t['waktu']}`")
                         st.markdown(f"**Nickname:** `{nickname}` ({t['user_game_id']})")
@@ -229,7 +231,10 @@ def admin_page():
                     form_col1, form_col2 = st.columns(2)
                     with form_col1:
                         status_options = ["Menunggu", "Diproses", "Selesai", "Gagal"]
-                        current_index = status_options.index(t['status']) if t['status'] in status_options else 0
+                        try:
+                            current_index = status_options.index(t['status'])
+                        except ValueError:
+                            current_index = 0
                         new_status = st.selectbox("Ubah Status ke:", options=status_options, index=current_index, key=f"status_{t['id']}")
                     with form_col2:
                         st.write("") 
@@ -266,6 +271,7 @@ def user_page():
             if st.form_submit_button("Ganti Password"): update_user_password(st.session_state['user'], new_pass); st.success("Password berhasil diubah!")
         st.markdown("---")
         st.subheader("Simpan ID Game Default")
+        st.caption("Isi ID game Anda agar terisi otomatis saat melakukan top up.")
         with st.form("save_id_form"):
             default_ml_id = user_data.get('default_ml_id', '') if user_data else ""
             default_ff_id = user_data.get('default_ff_id', '') if user_data else ""
@@ -303,7 +309,7 @@ def user_page():
         with col1:
             st.subheader("2. Pilih Paket Top Up")
             all_products = get_products_with_game_info()
-            game_products = [p for p in all_products if p['game_id'] == selected_game['id']]
+            game_products = [p for p in all_products if p.get('game_id') == selected_game['id']]
             if not game_products: st.warning("Produk untuk game ini belum tersedia.")
             else:
                 for p in game_products:
@@ -334,7 +340,7 @@ def user_page():
             for t in transactions:
                 nickname, metode = (t['user_nickname'].split("|", 1) + ["-"])[:2] if t.get('user_nickname') else (t.get('user_nickname'), "-")
                 with st.container(border=True):
-                    st.write(f"#### {t['paket']} (ID: {t['id']})")
+                    st.write(f"#### {t['paket']} (ID Transaksi: {t['id']})")
                     st.write(f"**Game:** {t['game']} | **Harga:** Rp {t['harga']:,}")
                     status_color = {"Selesai": "green", "Diproses": "orange", "Gagal": "red"}.get(t['status'], "gray")
                     st.write(f"Status: **<span style='color:{status_color};'>{t['status']}</span>**", unsafe_allow_html=True)
