@@ -104,9 +104,34 @@ def toggle_review_visibility(review_id, new_visibility):
 def delete_review(review_id):
     return supabase.table("reviews").delete().eq("id", review_id).execute()
 
+# --- Fungsi CRUD untuk Kotak Pesan ---
+def send_message(sender, recipient, content):
+    if content:
+        message_data = {"sender": sender, "recipient": recipient, "content": content}
+        return supabase.table("messages").insert(message_data).execute()
+def get_conversation(user1, user2):
+    response1 = supabase.table("messages").select("*").eq("sender", user1).eq("recipient", user2).execute().data
+    response2 = supabase.table("messages").select("*").eq("sender", user2).eq("recipient", user1).execute().data
+    conversation = sorted(response1 + response2, key=lambda x: x['created_at'])
+    return conversation
+def get_conversations_for_admin():
+    messages_to_admin = supabase.table("messages").select("sender, is_read").eq("recipient", "admin").order("created_at", desc=True).execute().data
+    conversations = {}
+    ordered_users = []
+    for msg in messages_to_admin:
+        sender = msg['sender']
+        if sender not in conversations:
+            conversations[sender] = {"unread_count": 0}
+            ordered_users.append(sender)
+        if not msg['is_read']:
+            conversations[sender]['unread_count'] += 1
+    return conversations, ordered_users
+def mark_messages_as_read(recipient, sender):
+    supabase.table("messages").update({"is_read": True}).eq("recipient", recipient).eq("sender", sender).execute()
+
 # --- MANAJEMEN SESSION STATE ---
 def clear_session():
-    keys_to_clear = ["user", "role", "user_selected_game", "selected_product", "last_statuses", "pending_payment", "editing_game_id", "editing_product_id", "show_review_form", "visible_reviews_count"]
+    keys_to_clear = ["user", "role", "user_selected_game", "selected_product", "last_statuses", "pending_payment", "editing_game_id", "editing_product_id", "show_review_form", "visible_reviews_count", "selected_chat_user"]
     for key in keys_to_clear:
         if key in st.session_state: del st.session_state[key]
 
@@ -147,12 +172,62 @@ def login_register_menu():
 # --- UI: HALAMAN ADMIN ---
 def admin_page():
     st.sidebar.title("👑 ADMIN PANEL")
-    sub_menu = st.sidebar.radio("Menu", ["Daftar Transaksi", "Kelola Produk", "Kelola Game", "Kelola Ulasan"])
+    sub_menu = st.sidebar.radio("Menu", ["Daftar Transaksi", "Kelola Produk", "Kelola Game", "Kelola Ulasan", "Kotak Pesan"])
     if st.sidebar.button("Logout", use_container_width=True): clear_session(); st.rerun()
     st.title(f"Admin Dashboard: {sub_menu}")
+
     if 'editing_game_id' not in st.session_state: st.session_state.editing_game_id = None
     if 'editing_product_id' not in st.session_state: st.session_state.editing_product_id = None
-    if sub_menu == "Kelola Ulasan":
+    if 'selected_chat_user' not in st.session_state: st.session_state.selected_chat_user = None
+
+    if sub_menu == "Kotak Pesan":
+        st.subheader("💬 Kotak Pesan dari Pengguna")
+        conversations, ordered_users = get_conversations_for_admin()
+        if not conversations:
+            st.info("Belum ada pesan yang masuk dari pengguna.")
+            return
+
+        col1, col2 = st.columns([1, 2.5])
+        with col1:
+            st.markdown("**Percakapan:**")
+            if st.session_state.selected_chat_user is None and ordered_users:
+                st.session_state.selected_chat_user = ordered_users[0]
+            
+            # Menggunakan st.radio untuk pemilihan yang lebih jelas
+            selected_user = st.radio(
+                "Pilih pengguna:", 
+                options=ordered_users,
+                format_func=lambda u: f"💬 {u} ({conversations[u]['unread_count']} baru)" if conversations[u]['unread_count'] > 0 else f"✅ {u}",
+                label_visibility="collapsed"
+            )
+            if selected_user != st.session_state.get('selected_chat_user'):
+                st.session_state.selected_chat_user = selected_user
+                st.rerun()
+
+        with col2:
+            chat_user = st.session_state.selected_chat_user
+            if chat_user:
+                st.info(f"Anda sedang membalas pesan dari **{chat_user}**.")
+                mark_messages_as_read(recipient="admin", sender=chat_user)
+                conversation = get_conversation("admin", chat_user)
+                
+                chat_container = st.container(height=400, border=True)
+                for msg in conversation:
+                    with chat_container:
+                        avatar_icon = "👑" if msg['sender'] == 'admin' else "🧑‍💻"
+                        with st.chat_message(msg['sender'], avatar=avatar_icon):
+                            st.write(msg['content'])
+                            st.caption(f"{msg['created_at']}")
+
+                with st.form(key=f"reply_form_{chat_user}", clear_on_submit=True):
+                    reply_content = st.text_area("Ketik balasan Anda:", height=100, label_visibility="collapsed", placeholder="Ketik balasan...")
+                    if st.form_submit_button("Kirim Balasan", use_container_width=True, type="primary"):
+                        send_message(sender="admin", recipient=chat_user, content=reply_content)
+                        st.rerun()
+            else:
+                st.write("Pilih percakapan untuk ditampilkan.")
+    
+    elif sub_menu == "Kelola Ulasan":
         st.subheader("📝 Moderasi Ulasan Pengguna")
         all_reviews = get_all_reviews()
         if not all_reviews: st.info("Belum ada ulasan dari pengguna.")
@@ -174,6 +249,7 @@ def admin_page():
                                 toggle_review_visibility(review['id'], True); st.rerun()
                         if st.button("Hapus", key=f"del_rev_{review['id']}", type="primary", use_container_width=True):
                             delete_review(review['id']); st.rerun()
+                            
     elif sub_menu == "Kelola Game":
         st.subheader("🎮 Manajemen Game")
         with st.form("AddGameForm", clear_on_submit=True):
@@ -216,6 +292,7 @@ def admin_page():
                         with col3:
                             if st.button("Ubah", key=f"edit_game_{game['id']}", use_container_width=True): st.session_state.editing_game_id = game['id']; st.rerun()
                             if st.button("Hapus", key=f"del_game_{game['id']}", type="primary", use_container_width=True): delete_game(game['id']); st.success(f"Game {game['name']} dihapus."); st.rerun()
+                            
     elif sub_menu == "Kelola Produk":
         st.subheader("🛍️ Manajemen Produk")
         games_list = get_games()
@@ -261,6 +338,7 @@ def admin_page():
                                 if st.button("Ubah", key=f"edit_prod_{p['id']}", use_container_width=True): st.session_state.editing_product_id = p['id']; st.rerun()
                             with col2:
                                 if st.button("Hapus", key=f"del_prod_{p['id']}", use_container_width=True, type="primary"): delete_product(p['id']); st.rerun()
+
     elif sub_menu == "Daftar Transaksi":
         st.subheader("🧾 Daftar Transaksi")
         transactions = get_all_transactions()
@@ -304,40 +382,50 @@ def user_page():
     check_and_notify(st.session_state['user'])
     
     st.sidebar.title("MENU PENGGUNA")
-    page = st.sidebar.radio("Navigasi", ["Pesan Top Up", "Riwayat Transaksi", "Profil Saya"])
+    page = st.sidebar.radio("Navigasi", ["Pesan Top Up", "Riwayat Transaksi", "Profil Saya", "Kotak Pesan"])
     if st.sidebar.button("Logout", use_container_width=True): clear_session(); st.rerun()
 
-    if page == "Profil Saya":
-        st.title(f"👤 Profil Saya: {st.session_state['user']}")
+    if page == "Kotak Pesan":
+        st.title("💬 Kotak Pesan")
+        st.write("Kirim pesan atau lihat balasan dari Admin di sini.")
+        username = st.session_state['user']
+        mark_messages_as_read(recipient=username, sender="admin")
+        conversation = get_conversation(username, "admin")
         
+        with st.container(height=500, border=True):
+            for msg in conversation:
+                avatar_icon = "🧑‍💻" if msg['sender'] == username else "👑"
+                with st.chat_message(msg['sender'], avatar=avatar_icon):
+                    st.write(msg['content'])
+                    st.caption(f"{msg['created_at']}")
+        
+        with st.form("message_form", clear_on_submit=True):
+            user_message = st.text_area("Ketik pesan Anda untuk Admin:", height=100, label_visibility="collapsed", placeholder="Ketik pesan Anda...")
+            if st.form_submit_button("Kirim Pesan", use_container_width=True, type="primary"):
+                send_message(sender=username, recipient="admin", content=user_message)
+                st.success("Pesan Anda telah terkirim!"); st.rerun()
+
+    elif page == "Profil Saya":
+        st.title(f"👤 Profil Saya: {st.session_state['user']}")
         st.subheader("Ringkasan Aktivitas Anda")
         transactions = get_user_transactions(st.session_state['user'])
         completed_trans = [t for t in transactions if t['status'] == 'Selesai']
-
         total_completed_trans = len(completed_trans)
         total_spending = sum(t['harga'] for t in completed_trans)
         fav_game = "Belum ada"
         if completed_trans:
             game_list = [t['game'] for t in completed_trans]
-            if game_list:
-                fav_game = Counter(game_list).most_common(1)[0][0]
-
+            if game_list: fav_game = Counter(game_list).most_common(1)[0][0]
         col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Transaksi Selesai", f"{total_completed_trans} Pesanan")
-        with col2:
-            st.metric("Total Pengeluaran", f"Rp {total_spending:,}")
-        with col3:
-            st.metric("Game Favorit", fav_game)
-
+        with col1: st.metric("Transaksi Selesai", f"{total_completed_trans} Pesanan")
+        with col2: st.metric("Total Pengeluaran", f"Rp {total_spending:,}")
+        with col3: st.metric("Game Favorit", fav_game)
         st.markdown("---")
         st.subheader("Pengaturan Akun")
         with st.form("change_password_form", clear_on_submit=True):
             st.markdown("**Ubah Password**")
             new_pass = st.text_input("Password Baru", type="password")
-            if st.form_submit_button("Ganti Password"): 
-                update_user_password(st.session_state['user'], new_pass)
-                st.success("Password berhasil diubah!")
+            if st.form_submit_button("Ganti Password"): update_user_password(st.session_state['user'], new_pass); st.success("Password berhasil diubah!")
     
     elif page == "Pesan Top Up":
         st.title("🛒 Pilih & Pesan Top Up")
@@ -418,8 +506,7 @@ def user_page():
                     if rating and comment:
                         add_review(selected_game['id'], st.session_state['user'], rating, comment)
                         st.success("Terima kasih atas ulasan Anda!"); st.session_state.show_review_form = False; st.rerun()
-                    else:
-                        st.warning("Harap isi rating dan komentar.")
+                    else: st.warning("Harap isi rating dan komentar.")
 
         game_reviews = get_reviews_for_game(selected_game['id'])
         if not game_reviews: st.info("Jadilah yang pertama memberikan ulasan untuk game ini!")
