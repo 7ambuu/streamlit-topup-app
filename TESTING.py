@@ -17,28 +17,38 @@ except (KeyError, AttributeError):
 
 # --- FUNGSI HELPER & CRUD ---
 def hash_password(password):
+    """Hashing password menggunakan SHA256."""
     return hashlib.sha256(password.encode()).hexdigest()
 
 def upload_image_to_storage(file_uploader_object, bucket_name):
+    """Fungsi generik untuk upload gambar ke Supabase Storage."""
     try:
         file_bytes = file_uploader_object.getvalue()
         unique_filename = f"{uuid.uuid4().hex}.jpg"
+        
         img = Image.open(file_uploader_object)
         if img.mode == 'RGBA':
             img = img.convert('RGB')
+        
         buf = BytesIO()
         img.save(buf, format='JPEG')
         file_bytes = buf.getvalue()
+
         supabase.storage.from_(bucket_name).upload(unique_filename, file_bytes, {'contentType': 'image/jpeg'})
+        
         return supabase.storage.from_(bucket_name).get_public_url(unique_filename)
     except Exception as e:
         st.error(f"Error saat mengupload file: {e}")
         return None
 
 def upload_payment_proof(transaction_id, uploaded_file):
+    """Uploads payment proof dan update record transaksi."""
     proof_url = upload_image_to_storage(uploaded_file, "product-images") 
     if proof_url:
-        supabase.table("transactions").update({"payment_proof_url": proof_url, "status": "Diproses"}).eq("id", transaction_id).execute()
+        supabase.table("transactions").update({
+            "payment_proof_url": proof_url, 
+            "status": "Diproses"
+        }).eq("id", transaction_id).execute()
         st.success("Bukti pembayaran berhasil diunggah! Status pesanan diubah menjadi 'Diproses'.")
         if f"proof_{transaction_id}" in st.session_state:
             del st.session_state[f"proof_{transaction_id}"]
@@ -52,7 +62,6 @@ def get_games():
 def add_game(name, description, logo_url):
     return supabase.table("games").insert({"name": name, "description": description, "logo_url": logo_url}).execute()
 def delete_game(game_id):
-    # ON DELETE CASCADE di database akan menghapus produk terkait
     return supabase.table("games").delete().eq("id", game_id).execute()
 
 # --- Fungsi CRUD untuk User ---
@@ -83,7 +92,7 @@ def delete_product(product_id):
     supabase.table("products").delete().eq("id", product_id).execute()
 
 # --- Fungsi CRUD untuk Transaksi ---
-def add_transaction(username, game_name, game_id, paket, harga, user_nickname, user_game_id, status="Menunggu"):
+def add_transaction(username, game_name, paket, harga, user_nickname, user_game_id, status="Menunggu"):
     trans_data = {"username": username, "game": game_name, "paket": paket, "harga": harga, "user_nickname": user_nickname, "user_game_id": user_game_id, "status": status}
     return supabase.table("transactions").insert(trans_data).execute().data[0]
 def get_user_transactions(username):
@@ -190,8 +199,9 @@ def admin_page():
             if not all_products: st.info("Belum ada produk.")
             else:
                 for p in all_products:
-                    game_name = p['games']['name'] if p['games'] else "Tanpa Game"
+                    game_name = p['games']['name'] if p.get('games') else "Tanpa Game"
                     with st.expander(f"**{game_name}** - {p['paket']} (Rp {p['harga']:,})"):
+                         st.write(f"ID Produk: {p['id']}")
                          if st.button("Hapus Produk", key=f"del_prod_{p['id']}", type="primary"):
                             delete_product(p['id']); st.rerun()
 
@@ -202,15 +212,30 @@ def admin_page():
         else:
             for t in transactions:
                 nickname, metode = (t['user_nickname'].split("|", 1) + ["-"])[:2] if t.get('user_nickname') else (t.get('user_nickname'), "-")
-                with st.expander(f"ID: {t['id']} | **{t['username']}** | {t['game']} | Status: **{t['status']}**"):
-                    st.image(t['payment_proof_url'], width=300) if t.get('payment_proof_url') else st.caption("User belum mengunggah bukti pembayaran.")
-                    st.write(f"**Waktu:** {t['waktu']}")
-                    st.write(f"**Nickname:** {nickname} ({t['user_game_id']})")
-                    col1, col2 = st.columns(2)
+                expander_title = f"ID: {t['id']} | User: {t['username']} | Game: {t.get('game', 'N/A')} | Status: {t['status']}"
+                with st.expander(expander_title):
+                    col1, col2 = st.columns([1, 2])
                     with col1:
-                        new_status = st.selectbox("Update Status", ["Menunggu", "Diproses", "Selesai", "Gagal"], index=["Menunggu", "Diproses", "Selesai", "Gagal"].index(t['status']), key=f"status_{t['id']}")
+                        st.markdown("**Bukti Pembayaran:**")
+                        if t.get('payment_proof_url'): st.image(t['payment_proof_url'], use_column_width=True)
+                        else: st.caption("Belum ada bukti bayar.")
                     with col2:
-                        if st.button("Update", key=f"up_{t['id']}", use_container_width=True): update_transaction_status(t['id'], new_status); st.rerun()
+                        st.markdown(f"**Waktu Pesan:** `{t['waktu']}`")
+                        st.markdown(f"**Nickname:** `{nickname}` ({t['user_game_id']})")
+                        st.markdown(f"**Paket:** {t['paket']} (Rp {t['harga']:,})")
+                        st.markdown(f"**Metode Bayar:** {metode}")
+                    st.markdown("---")
+                    st.markdown("**Update Status Pesanan:**")
+                    form_col1, form_col2 = st.columns(2)
+                    with form_col1:
+                        status_options = ["Menunggu", "Diproses", "Selesai", "Gagal"]
+                        current_index = status_options.index(t['status']) if t['status'] in status_options else 0
+                        new_status = st.selectbox("Ubah Status ke:", options=status_options, index=current_index, key=f"status_{t['id']}")
+                    with form_col2:
+                        st.write("") 
+                        st.write("")
+                        if st.button("Simpan Perubahan", key=f"up_{t['id']}", use_container_width=True, type="primary"):
+                            update_transaction_status(t['id'], new_status); st.rerun()
 
 # --- UI: HALAMAN USER ---
 def user_page():
@@ -223,9 +248,9 @@ def user_page():
         current_statuses = {str(t['id']): t['status'] for t in latest_transactions}
         for trans_id, new_status in current_statuses.items():
             old_status = st.session_state.last_statuses.get(trans_id)
-            if old_status != new_status:
-                if old_status is not None: st.toast(f"🎉 Pesanan #{trans_id} kini berstatus: **{new_status}**", icon="🔔")
-                st.session_state.last_statuses[trans_id] = new_status
+            if old_status is not None and old_status != new_status:
+                st.toast(f"🎉 Pesanan #{trans_id} kini berstatus: **{new_status}**", icon="🔔")
+            st.session_state.last_statuses[trans_id] = new_status
     check_and_notify(st.session_state['user'])
     
     st.sidebar.title("MENU PENGGUNA")
@@ -238,8 +263,7 @@ def user_page():
         st.subheader("Ubah Password")
         with st.form("change_password_form", clear_on_submit=True):
             new_pass = st.text_input("Password Baru", type="password")
-            submit_pass = st.form_submit_button("Ganti Password")
-            if submit_pass: update_user_password(st.session_state['user'], new_pass); st.success("Password berhasil diubah!")
+            if st.form_submit_button("Ganti Password"): update_user_password(st.session_state['user'], new_pass); st.success("Password berhasil diubah!")
         st.markdown("---")
         st.subheader("Simpan ID Game Default")
         with st.form("save_id_form"):
@@ -289,7 +313,6 @@ def user_page():
             if "selected_product" in st.session_state and st.session_state.selected_product:
                 product = st.session_state.selected_product
                 st.write(f"Pilihan: **{product['paket']}** | Harga: **Rp {product['harga']:,}**")
-                user_data = get_user_data(st.session_state['user'])
                 with st.form("form_topup"):
                     nickname = st.text_input("Nickname Game")
                     game_id = st.text_input("User ID (Zone ID jika ada)")
@@ -297,7 +320,7 @@ def user_page():
                     if st.form_submit_button("Pesan Sekarang", use_container_width=True):
                         if not nickname or not game_id: st.warning("Nickname dan User ID harus diisi!")
                         else:
-                            new_transaction = add_transaction(st.session_state["user"], selected_game['name'], selected_game['id'], product['paket'], product['harga'], f"{nickname}|{pay_method}", game_id)
+                            new_transaction = add_transaction(st.session_state["user"], selected_game['name'], product['paket'], product['harga'], f"{nickname}|{pay_method}", game_id)
                             st.session_state.pending_payment = new_transaction
                             del st.session_state.selected_product
                             st.rerun()
