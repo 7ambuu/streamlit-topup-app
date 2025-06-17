@@ -68,8 +68,7 @@ def get_user_data(username):
     return response.data[0] if response.data else None
 def update_user_password(username, new_password):
     supabase.table("users").update({"password_hash": hash_password(new_password)}).eq("username", username).execute()
-def update_user_game_ids(username, ml_id, ff_id):
-    supabase.table("users").update({"default_ml_id": ml_id, "default_ff_id": ff_id}).eq("username", username).execute()
+# Fungsi update_user_game_ids dihapus karena sudah tidak relevan
 
 # --- Fungsi CRUD untuk Produk ---
 def add_product(game_id, paket, harga):
@@ -111,16 +110,13 @@ def clear_session():
     for key in keys_to_clear:
         if key in st.session_state: del st.session_state[key]
 
-# --- UI: HALAMAN LOGIN & REGISTRASI (VERSI BARU) ---
+# --- UI: HALAMAN LOGIN & REGISTRASI ---
 def login_register_menu():
     st.sidebar.title("🎮 TopUpGame")
     st.sidebar.info("Silakan Login atau Register untuk melanjutkan.")
-    
     st.title("Selamat Datang di TopUpGame")
     st.write("Platform Top Up Game Terpercaya. Silakan login untuk melanjutkan atau daftar jika Anda pengguna baru.")
-
     login_tab, register_tab = st.tabs(["🔑 Login", "✍️ Register"])
-
     with login_tab:
         with st.form("login_form"):
             st.markdown("##### Silakan login ke akun Anda")
@@ -134,7 +130,6 @@ def login_register_menu():
                     st.rerun()
                 else:
                     st.error("Username atau password salah.")
-
     with register_tab:
         with st.form("register_form"):
             st.markdown("##### Belum punya akun? Daftar di sini!")
@@ -159,7 +154,6 @@ def admin_page():
     if 'editing_product_id' not in st.session_state: st.session_state.editing_product_id = None
     if sub_menu == "Kelola Ulasan":
         st.subheader("📝 Moderasi Ulasan Pengguna")
-        st.write("Anda bisa menyembunyikan atau menghapus ulasan yang tidak pantas.")
         all_reviews = get_all_reviews()
         if not all_reviews: st.info("Belum ada ulasan dari pengguna.")
         else:
@@ -315,21 +309,13 @@ def user_page():
 
     if page == "Profil Saya":
         st.title("👤 Profil Saya")
-        user_data = get_user_data(st.session_state['user'])
         st.subheader("Ubah Password")
         with st.form("change_password_form", clear_on_submit=True):
             new_pass = st.text_input("Password Baru", type="password")
             if st.form_submit_button("Ganti Password"): update_user_password(st.session_state['user'], new_pass); st.success("Password berhasil diubah!")
         st.markdown("---")
-        st.subheader("Simpan ID Game Default")
-        st.caption("Isi ID game Anda agar terisi otomatis saat melakukan top up.")
-        with st.form("save_id_form"):
-            default_ml_id = user_data.get('default_ml_id', '') if user_data else ""
-            default_ff_id = user_data.get('default_ff_id', '') if user_data else ""
-            ml_id = st.text_input("ID Game Mobile Legends", value=default_ml_id)
-            ff_id = st.text_input("ID Game Free Fire", value=default_ff_id)
-            if st.form_submit_button("Simpan ID"): update_user_game_ids(st.session_state['user'], ml_id, ff_id); st.success("ID Game berhasil disimpan!")
-    
+        st.info("Fitur Simpan ID Game Default telah dihapus.")
+
     elif page == "Pesan Top Up":
         st.title("🛒 Pilih & Pesan Top Up")
         if 'pending_payment' in st.session_state:
