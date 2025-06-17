@@ -186,7 +186,6 @@ def admin_page():
         if not conversations:
             st.info("Belum ada pesan yang masuk dari pengguna.")
             return
-
         col1, col2 = st.columns([1, 2.5])
         with col1:
             st.markdown("**Percakapan:**")
@@ -198,10 +197,9 @@ def admin_page():
                 format_func=lambda u: f"💬 {u} ({conversations[u]['unread_count']} baru)" if conversations[u]['unread_count'] > 0 else f"✅ {u}",
                 label_visibility="collapsed"
             )
-            if selected_user_from_radio != st.session_state.selected_chat_user:
+            if selected_user_from_radio != st.session_state.get('selected_chat_user'):
                 st.session_state.selected_chat_user = selected_user_from_radio
                 st.rerun()
-
         with col2:
             chat_user = st.session_state.selected_chat_user
             if chat_user:
@@ -225,7 +223,7 @@ def admin_page():
                         st.rerun()
             else:
                 st.write("Pilih percakapan untuk ditampilkan.")
-
+    
     elif sub_menu == "Kelola Ulasan":
         st.subheader("📝 Moderasi Ulasan Pengguna")
         all_reviews = get_all_reviews()
@@ -248,7 +246,7 @@ def admin_page():
                                 toggle_review_visibility(review['id'], True); st.rerun()
                         if st.button("Hapus", key=f"del_rev_{review['id']}", type="primary", use_container_width=True):
                             delete_review(review['id']); st.rerun()
-
+                            
     elif sub_menu == "Kelola Game":
         st.subheader("🎮 Manajemen Game")
         with st.form("AddGameForm", clear_on_submit=True):
@@ -291,7 +289,7 @@ def admin_page():
                         with col3:
                             if st.button("Ubah", key=f"edit_game_{game['id']}", use_container_width=True): st.session_state.editing_game_id = game['id']; st.rerun()
                             if st.button("Hapus", key=f"del_game_{game['id']}", type="primary", use_container_width=True): delete_game(game['id']); st.success(f"Game {game['name']} dihapus."); st.rerun()
-
+                            
     elif sub_menu == "Kelola Produk":
         st.subheader("🛍️ Manajemen Produk")
         games_list = get_games()
@@ -381,7 +379,7 @@ def user_page():
     check_and_notify(st.session_state['user'])
     
     st.sidebar.title("MENU PENGGUNA")
-    page = st.sidebar.radio("Navigasi", ["Pesan Top Up", "Riwayat Transaksi", "Profil Saya", "Kotak Pesan"])
+    page = st.sidebar.radio("Navigasi", ["Beranda & Top Up", "Riwayat Transaksi", "Profil Saya", "Kotak Pesan"])
     if st.sidebar.button("Logout", use_container_width=True): clear_session(); st.rerun()
 
     if page == "Kotak Pesan":
@@ -427,8 +425,8 @@ def user_page():
             new_pass = st.text_input("Password Baru", type="password")
             if st.form_submit_button("Ganti Password"): update_user_password(st.session_state['user'], new_pass); st.success("Password berhasil diubah!")
     
-    elif page == "Pesan Top Up":
-        st.title("🛒 Pilih & Pesan Top Up")
+    elif page == "Beranda & Top Up":
+        st.title("🛒 Beranda")
         if 'pending_payment' in st.session_state:
             pending_trans = st.session_state.pending_payment
             st.success(f"Pesanan (ID: {pending_trans['id']}) berhasil dibuat!")
@@ -441,92 +439,104 @@ def user_page():
         if 'show_review_form' not in st.session_state: st.session_state.show_review_form = False
         
         if st.session_state.user_selected_game is None:
-            st.subheader("1. Pilih Game Anda")
+            st.subheader(f"Selamat Datang, {st.session_state['user']}!")
+            st.write("Mau top up apa hari ini?")
+            search_term = st.text_input("🔍 Cari game favoritmu...", key="game_search")
+            
+            st.subheader("Game Populer")
             games = get_games()
             if not games: st.warning("Belum ada game yang tersedia."); return
+            
+            if search_term:
+                games = [g for g in games if search_term.lower() in g['name'].lower()]
+
             st.session_state.show_review_form = False
             st.session_state.visible_reviews_count = 5
-            cols = st.columns(len(games) or 1)
+            cols = st.columns(4)
             for i, game in enumerate(games):
-                with cols[i]:
-                    st.image(game['logo_url']);
-                    if st.button(game['name'], use_container_width=True, key=f"game_{game['id']}"): 
-                        st.session_state.user_selected_game = game
-                        st.session_state.visible_reviews_count = 5
-                        st.rerun()
+                with cols[i % 4]:
+                    with st.container(border=True):
+                        st.image(game['logo_url'])
+                        if st.button(game['name'], use_container_width=True, key=f"game_{game['id']}"): 
+                            st.session_state.user_selected_game = game
+                            st.session_state.visible_reviews_count = 5
+                            st.rerun()
             return
 
         selected_game = st.session_state.user_selected_game
-        st.info(f"Anda memilih: **{selected_game['name']}**.")
-        if st.button("⬅️ Pilih Game Lain"): st.session_state.user_selected_game = None; st.session_state.selected_product = None; st.rerun()
-        st.markdown("---")
+        st.title(f"{selected_game['name']}")
+        if st.button("⬅️ Kembali ke Daftar Game"): 
+            st.session_state.user_selected_game = None
+            st.session_state.selected_product = None
+            st.rerun()
         
-        st.subheader("Pilih Paket & Isi Data")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("**Paket Top Up Tersedia**")
-            all_products = get_products_with_game_info()
-            game_products = [p for p in all_products if p.get('game_id') == selected_game['id']]
-            if not game_products: st.warning("Produk untuk game ini belum tersedia.")
+        tab_beli, tab_ulasan, tab_info = st.tabs(["🛍️ Beli Produk", "⭐ Ulasan Pengguna", "ℹ️ Deskripsi"])
+        with tab_beli:
+            st.subheader("Pilih Paket & Isi Data")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**Paket Top Up Tersedia**")
+                all_products = get_products_with_game_info()
+                game_products = [p for p in all_products if p.get('game_id') == selected_game['id']]
+                if not game_products: st.warning("Produk untuk game ini belum tersedia.")
+                else:
+                    for p in game_products:
+                        if st.button(f"{p['paket']} - Rp {p['harga']:,}", key=f"choose_{p['id']}", use_container_width=True): st.session_state.selected_product = p; st.rerun()
+            with col2:
+                st.markdown("**Data & Pembayaran**")
+                if "selected_product" in st.session_state and st.session_state.selected_product:
+                    product = st.session_state.selected_product
+                    st.write(f"Pilihan: **{product['paket']}** | Harga: **Rp {product['harga']:,}**")
+                    with st.form("form_topup"):
+                        nickname = st.text_input("Nickname Game")
+                        game_id = st.text_input("User ID (Zone ID jika ada)")
+                        pay_method = st.radio("Metode Pembayaran", ["DANA", "GOPAY"], horizontal=True)
+                        if st.form_submit_button("Pesan Sekarang", use_container_width=True):
+                            if not nickname or not game_id: st.warning("Nickname dan User ID harus diisi!")
+                            else:
+                                new_transaction = add_transaction(st.session_state["user"], selected_game['name'], product['paket'], product['harga'], f"{nickname}|{pay_method}", game_id)
+                                st.session_state.pending_payment = new_transaction
+                                del st.session_state.selected_product; st.rerun()
+                else: st.info("Pilih paket di sebelah kiri untuk melanjutkan.")
+        
+        with tab_ulasan:
+            review_col1, review_col2 = st.columns([3,1])
+            with review_col1: st.subheader(f"Ulasan Pengguna")
+            with review_col2:
+                if st.button("✍️ Tulis Ulasan", use_container_width=True): st.session_state.show_review_form = not st.session_state.show_review_form
+            if st.session_state.show_review_form:
+                with st.form("review_form", clear_on_submit=True, border=True):
+                    rating_options = {1: "⭐", 2: "⭐⭐", 3: "⭐⭐⭐", 4: "⭐⭐⭐⭐", 5: "⭐⭐⭐⭐⭐"}
+                    rating = st.select_slider("Beri Rating:", options=list(rating_options.keys()), format_func=lambda x: rating_options[x], value=5)
+                    comment = st.text_area("Komentar Anda:")
+                    if st.form_submit_button("Kirim Ulasan", type="primary"):
+                        if rating and comment:
+                            add_review(selected_game['id'], st.session_state['user'], rating, comment)
+                            st.success("Terima kasih atas ulasan Anda!"); st.session_state.show_review_form = False; st.rerun()
+                        else: st.warning("Harap isi rating dan komentar.")
+            game_reviews = get_reviews_for_game(selected_game['id'])
+            if not game_reviews: st.info("Jadilah yang pertama memberikan ulasan untuk game ini!")
             else:
-                for p in game_products:
-                    if st.button(f"{p['paket']} - Rp {p['harga']:,}", key=f"choose_{p['id']}", use_container_width=True): st.session_state.selected_product = p; st.rerun()
-        with col2:
-            st.markdown("**Data & Pembayaran**")
-            if "selected_product" in st.session_state and st.session_state.selected_product:
-                product = st.session_state.selected_product
-                st.write(f"Pilihan: **{product['paket']}** | Harga: **Rp {product['harga']:,}**")
-                with st.form("form_topup"):
-                    nickname = st.text_input("Nickname Game")
-                    game_id = st.text_input("User ID (Zone ID jika ada)")
-                    pay_method = st.radio("Metode Pembayaran", ["DANA", "GOPAY"], horizontal=True)
-                    if st.form_submit_button("Pesan Sekarang", use_container_width=True):
-                        if not nickname or not game_id: st.warning("Nickname dan User ID harus diisi!")
-                        else:
-                            new_transaction = add_transaction(st.session_state["user"], selected_game['name'], product['paket'], product['harga'], f"{nickname}|{pay_method}", game_id)
-                            st.session_state.pending_payment = new_transaction
-                            del st.session_state.selected_product; st.rerun()
-            else: st.info("Pilih paket di sebelah kiri untuk melanjutkan.")
-        
-        st.markdown("---")
-        
-        review_col1, review_col2 = st.columns([3,1])
-        with review_col1:
-            st.subheader(f"Ulasan Pengguna")
-        with review_col2:
-            if st.button("✍️ Tulis Ulasan", use_container_width=True):
-                st.session_state.show_review_form = not st.session_state.show_review_form
-        
-        if st.session_state.show_review_form:
-            with st.form("review_form", clear_on_submit=True, border=True):
-                rating_options = {1: "⭐", 2: "⭐⭐", 3: "⭐⭐⭐", 4: "⭐⭐⭐⭐", 5: "⭐⭐⭐⭐⭐"}
-                rating = st.select_slider("Beri Rating:", options=list(rating_options.keys()), format_func=lambda x: rating_options[x], value=5)
-                comment = st.text_area("Komentar Anda:")
-                if st.form_submit_button("Kirim Ulasan", type="primary"):
-                    if rating and comment:
-                        add_review(selected_game['id'], st.session_state['user'], rating, comment)
-                        st.success("Terima kasih atas ulasan Anda!"); st.session_state.show_review_form = False; st.rerun()
-                    else:
-                        st.warning("Harap isi rating dan komentar.")
-
-        game_reviews = get_reviews_for_game(selected_game['id'])
-        if not game_reviews: st.info("Jadilah yang pertama memberikan ulasan untuk game ini!")
-        else:
-            ratings_list = [r['rating'] for r in game_reviews]
-            avg_rating = np.mean(ratings_list) if ratings_list else 0
-            st.markdown(f"**Rating Rata-rata:** {'⭐' * int(round(avg_rating))} ({avg_rating:.1f} / 5 dari {len(ratings_list)} ulasan)")
+                ratings_list = [r['rating'] for r in game_reviews]
+                avg_rating = np.mean(ratings_list) if ratings_list else 0
+                st.markdown(f"**Rating Rata-rata:** {'⭐' * int(round(avg_rating))} ({avg_rating:.1f} / 5 dari {len(ratings_list)} ulasan)")
+                st.markdown("---")
+                if 'visible_reviews_count' not in st.session_state: st.session_state.visible_reviews_count = 5
+                reviews_to_show = game_reviews[:st.session_state.visible_reviews_count]
+                for review in reviews_to_show:
+                    with st.container(border=True):
+                        st.markdown(f"**{review['username']}** - `{'⭐' * review['rating']}`")
+                        st.caption(f"Pada: {review['created_at']}")
+                        st.write(f"*{review['comment']}*")
+                if len(game_reviews) > st.session_state.visible_reviews_count:
+                    if st.button("Lihat Ulasan Lainnya..."):
+                        st.session_state.visible_reviews_count += 5; st.rerun()
+        with tab_info:
+            st.subheader(f"Tentang {selected_game['name']}")
+            st.write(selected_game['description'] or "Tidak ada deskripsi untuk game ini.")
             st.markdown("---")
-            if 'visible_reviews_count' not in st.session_state: st.session_state.visible_reviews_count = 5
-            reviews_to_show = game_reviews[:st.session_state.visible_reviews_count]
-            for review in reviews_to_show:
-                with st.container(border=True):
-                    st.markdown(f"**{review['username']}** - `{'⭐' * review['rating']}`")
-                    st.caption(f"Pada: {review['created_at']}")
-                    st.write(f"*{review['comment']}*")
-            if len(game_reviews) > st.session_state.visible_reviews_count:
-                if st.button("Lihat Ulasan Lainnya..."):
-                    st.session_state.visible_reviews_count += 5
-                    st.rerun()
+            st.subheader("Cara Menemukan User ID")
+            st.info("Setiap game memiliki cara yang berbeda untuk menemukan User ID. Umumnya, Anda bisa menemukannya di dalam halaman profil di dalam game tersebut. Pastikan Anda memasukkan ID dengan benar untuk menghindari kesalahan top up.")
 
     elif page == "Riwayat Transaksi":
         st.title("📜 Riwayat Transaksi Anda")
@@ -536,7 +546,7 @@ def user_page():
             for t in transactions:
                 nickname, metode = (t['user_nickname'].split("|", 1) + ["-"])[:2] if t.get('user_nickname') else (t.get('user_nickname'), "-")
                 with st.container(border=True):
-                    st.write(f"#### {t['paket']} (ID Transaksi: {t['id']})")
+                    st.write(f"#### {t['paket']} (ID: {t['id']})")
                     st.write(f"**Game:** {t['game']} | **Harga:** Rp {t['harga']:,}")
                     status_color = {"Selesai": "green", "Diproses": "orange", "Gagal": "red"}.get(t['status'], "gray")
                     st.write(f"Status: **<span style='color:{status_color};'>{t['status']}</span>**", unsafe_allow_html=True)
