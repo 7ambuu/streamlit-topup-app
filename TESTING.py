@@ -111,37 +111,43 @@ def clear_session():
     for key in keys_to_clear:
         if key in st.session_state: del st.session_state[key]
 
-# --- UI: HALAMAN LOGIN & REGISTRASI ---
+# --- UI: HALAMAN LOGIN & REGISTRASI (VERSI BARU) ---
 def login_register_menu():
     st.sidebar.title("🎮 TopUpGame")
-    menu = st.sidebar.selectbox("Menu", ["Login", "Register"])
+    st.sidebar.info("Silakan Login atau Register untuk melanjutkan.")
+    
     st.title("Selamat Datang di TopUpGame")
-    st.write("Platform Top Up Game Terpercaya")
-    st.markdown("---")
-    col1, col2, col3 = st.columns([1, 1.5, 1])
-    with col2:
-        if menu == "Register":
-            st.subheader("Buat Akun Baru")
-            with st.form("RegisterForm"):
-                username = st.text_input("Username")
-                password = st.text_input("Password", type="password")
-                if st.form_submit_button("Register", use_container_width=True):
-                    if not username or not password: st.error("Username dan password tidak boleh kosong.")
-                    elif register_user(username, password): st.success("Registrasi berhasil! Silakan pindah ke menu Login.")
-                    else: st.error("Username mungkin sudah digunakan.")
-        else:
-            st.subheader("Login ke Akun Anda")
-            with st.form("LoginForm"):
-                username = st.text_input("Username")
-                password = st.text_input("Password", type="password")
-                if st.form_submit_button("Login", use_container_width=True):
-                    user = login_user(username, password)
-                    if user:
-                        st.session_state["user"] = user['username']
-                        st.session_state["role"] = user['role']
-                        st.rerun()
-                    else:
-                        st.error("Username atau password salah.")
+    st.write("Platform Top Up Game Terpercaya. Silakan login untuk melanjutkan atau daftar jika Anda pengguna baru.")
+
+    login_tab, register_tab = st.tabs(["🔑 Login", "✍️ Register"])
+
+    with login_tab:
+        with st.form("login_form"):
+            st.markdown("##### Silakan login ke akun Anda")
+            username = st.text_input("Username", placeholder="Masukkan username Anda")
+            password = st.text_input("Password", type="password", placeholder="Masukkan password Anda")
+            if st.form_submit_button("Login", use_container_width=True, type="primary"):
+                user = login_user(username, password)
+                if user:
+                    st.session_state["user"] = user['username']
+                    st.session_state["role"] = user['role']
+                    st.rerun()
+                else:
+                    st.error("Username atau password salah.")
+
+    with register_tab:
+        with st.form("register_form"):
+            st.markdown("##### Belum punya akun? Daftar di sini!")
+            reg_username = st.text_input("Username Baru", key="reg_username")
+            reg_password = st.text_input("Password Baru", type="password", key="reg_password")
+            if st.form_submit_button("Daftar Sekarang", use_container_width=True):
+                if not reg_username or not reg_password:
+                    st.error("Username dan password tidak boleh kosong.")
+                elif register_user(reg_username, reg_password):
+                    st.success("Registrasi berhasil! Silakan pindah ke tab Login untuk masuk.")
+                    time.sleep(2)
+                else:
+                    st.error("Username tersebut mungkin sudah digunakan.")
 
 # --- UI: HALAMAN ADMIN ---
 def admin_page():
@@ -391,7 +397,7 @@ def user_page():
         with review_col1:
             st.subheader(f"Ulasan Pengguna")
         with review_col2:
-            if st.button("✍️ Tulis Ulasan Anda", use_container_width=True):
+            if st.button("✍️ Tulis Ulasan", use_container_width=True):
                 st.session_state.show_review_form = not st.session_state.show_review_form
         
         if st.session_state.show_review_form:
@@ -403,11 +409,11 @@ def user_page():
                     if rating and comment:
                         add_review(selected_game['id'], st.session_state['user'], rating, comment)
                         st.success("Terima kasih atas ulasan Anda!"); st.session_state.show_review_form = False; st.rerun()
-                    else: st.warning("Harap isi rating dan komentar.")
+                    else:
+                        st.warning("Harap isi rating dan komentar.")
 
         game_reviews = get_reviews_for_game(selected_game['id'])
-        if not game_reviews:
-            st.info("Jadilah yang pertama memberikan ulasan untuk game ini!")
+        if not game_reviews: st.info("Jadilah yang pertama memberikan ulasan untuk game ini!")
         else:
             ratings_list = [r['rating'] for r in game_reviews]
             avg_rating = np.mean(ratings_list) if ratings_list else 0
