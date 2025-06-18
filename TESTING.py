@@ -77,7 +77,6 @@ def get_all_users_for_admin():
 def delete_user_by_id(user_id):
     return supabase.table("users").delete().eq("id", user_id).execute()
 
-
 # --- Fungsi CRUD untuk Produk ---
 def add_product(game_id, paket, harga):
     supabase.table("products").insert({"game_id": game_id, "paket": paket, "harga": harga}).execute()
@@ -150,7 +149,6 @@ def login_register_menu():
     st.title("Selamat Datang di ✨ ARRA")
     st.write("Platform Top Up Game Terpercaya Pilihan Gamers.")
     st.divider()
-
     login_tab, register_tab = st.tabs(["🔑 Login", "✍️ Register"])
     with login_tab:
         with st.form("login_form"):
@@ -216,7 +214,6 @@ def admin_page():
                                 status.update(label=f"User {user['username']} berhasil dihapus.", state="complete", expanded=False)
                             time.sleep(1)
                             st.rerun()
-    
     elif sub_menu == "💬 Kotak Pesan":
         conversations, ordered_users = get_conversations_for_admin()
         if not conversations:
@@ -254,7 +251,6 @@ def admin_page():
                         send_message(sender="admin", recipient=chat_user, content=reply_content); st.rerun()
             else:
                 st.write("Pilih percakapan untuk ditampilkan.")
-
     elif sub_menu == "📝 Kelola Ulasan":
         all_reviews = get_all_reviews()
         if not all_reviews: st.info("Belum ada ulasan dari pengguna.")
@@ -276,7 +272,6 @@ def admin_page():
                                 toggle_review_visibility(review['id'], True); st.rerun()
                         if st.button("Hapus", key=f"del_rev_{review['id']}", type="primary", use_container_width=True):
                             delete_review(review['id']); st.rerun()
-                            
     elif sub_menu == "🎮 Kelola Game":
         list_tab, add_tab = st.tabs(["Daftar Game", "➕ Tambah Game Baru"])
         with add_tab:
@@ -322,7 +317,6 @@ def admin_page():
                             with col3:
                                 if st.button("Ubah", key=f"edit_game_{game['id']}", use_container_width=True): st.session_state.editing_game_id = game['id']; st.rerun()
                                 if st.button("Hapus", key=f"del_game_{game['id']}", type="primary", use_container_width=True): delete_game(game['id']); st.success(f"Game {game['name']} dihapus."); st.rerun()
-
     elif sub_menu == "🛍️ Kelola Produk":
         list_tab, add_tab = st.tabs(["Daftar Produk", "➕ Tambah Produk Baru"])
         games_list = get_games()
@@ -365,7 +359,6 @@ def admin_page():
                                 with col2:
                                     if st.button("Ubah", key=f"edit_prod_{p['id']}", use_container_width=True): st.session_state.editing_product_id = p['id']; st.rerun()
                                     if st.button("Hapus", key=f"del_prod_{p['id']}", use_container_width=True, type="primary"): delete_product(p['id']); st.rerun()
-                                    
     elif sub_menu == "🧾 Daftar Transaksi":
         transactions = get_all_transactions()
         if not transactions: st.info("Belum ada transaksi.")
@@ -581,4 +574,54 @@ def user_page():
         if not transactions: st.info("Anda belum memiliki riwayat transaksi.")
         else:
             for t in transactions:
-                nickname, metode = (t['user_nickname'].split("|", 1) + ["-"])[:2] if t.get('user_nickname')
+                nickname, metode = (t['user_nickname'].split("|", 1) + ["-"])[:2] if t.get('user_nickname') else (t.get('user_nickname'), "-")
+                with st.container(border=True):
+                    st.write(f"#### {t['paket']} (ID: {t['id']})")
+                    st.write(f"**Game:** {t['game']} | **Harga:** Rp {t['harga']:,}")
+                    status_color = {"Selesai": "green", "Diproses": "orange", "Gagal": "red"}.get(t['status'], "gray")
+                    st.write(f"Status: **<span style='color:{status_color};'>{t['status']}</span>**", unsafe_allow_html=True)
+                    if t['status'] == 'Menunggu':
+                        st.markdown("**Aksi Dibutuhkan:**")
+                        uploaded_proof = st.file_uploader("Unggah Bukti Pembayaran Anda", type=["png", "jpg", "jpeg"], key=f"proof_{t['id']}")
+                        if uploaded_proof: upload_payment_proof(t['id'], uploaded_proof)
+                    if t.get('payment_proof_url'):
+                        with st.expander("Lihat Bukti Pembayaran"): st.image(t['payment_proof_url'])
+
+    elif page == "💬 Kotak Pesan":
+        st.header("Kotak Pesan")
+        st.write("Kirim pesan atau lihat balasan dari Admin di sini.")
+        st.divider()
+        username = st.session_state['user']
+        mark_messages_as_read(recipient=username, sender="admin")
+        conversation = get_conversation(username, "admin")
+        with st.container(height=500, border=True):
+            for msg in conversation:
+                role = "user" if msg['sender'] == username else "assistant"
+                avatar_icon = "🧑‍💻" if role == "user" else "👑"
+                with st.chat_message(role, avatar=avatar_icon):
+                    st.write(msg['content'])
+                    st.caption(f"{msg['created_at']}")
+        with st.form("message_form", clear_on_submit=True):
+            user_message = st.text_area("Ketik pesan Anda untuk Admin:", height=100, label_visibility="collapsed", placeholder="Ketik pesan Anda...")
+            if st.form_submit_button("Kirim Pesan", use_container_width=True, type="primary"):
+                with st.spinner("Mengirim pesan..."): send_message(sender=username, recipient="admin", content=user_message)
+                st.success("Pesan Anda telah terkirim!"); st.rerun()
+
+# --- LOGIKA UTAMA APLIKASI ---
+def main():
+    st.set_page_config(page_title="ARRA TopUp", page_icon="✨", layout="wide", initial_sidebar_state="expanded")
+    if "user" not in st.session_state:
+        login_register_menu()
+    else:
+        st_autorefresh(interval=7000, key="global_refresh")
+        st.sidebar.title("✨ ARRA")
+        st.sidebar.success(f"Login sebagai: **{st.session_state['user']}**")
+        st.sidebar.caption(f"Role: {st.session_state['role']}")
+        st.sidebar.divider()
+        if st.session_state["role"] == "admin":
+            admin_page()
+        else:
+            user_page()
+
+if __name__ == "__main__":
+    main()
