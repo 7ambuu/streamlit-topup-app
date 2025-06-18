@@ -8,7 +8,7 @@ from io import BytesIO
 import numpy as np
 import time
 from collections import Counter
-from operator import itemgetter
+from datetime import datetime
 
 # --- KONFIGURASI APLIKASI ---
 try:
@@ -43,8 +43,14 @@ def upload_payment_proof(transaction_id, uploaded_file):
         proof_url = upload_image_to_storage(uploaded_file, "product-images") 
     if proof_url:
         supabase.table("transactions").update({"payment_proof_url": proof_url, "status": "Diproses"}).eq("id", transaction_id).execute()
-        st.success("Bukti pembayaran berhasil diunggah!")
-        if f"proof_{transaction_id}" in st.session_state: del st.session_state[f"proof_{transaction_id}"]
+        st.success("Bukti pembayaran berhasil diunggah! Pesanan Anda sedang diproses.")
+        if 'pending_payment' in st.session_state:
+            del st.session_state['pending_payment']
+        if f"proof_direct_{transaction_id}" in st.session_state:
+            del st.session_state[f"proof_direct_{transaction_id}"]
+        if f"proof_history_{transaction_id}" in st.session_state:
+            del st.session_state[f"proof_history_{transaction_id}"]
+        time.sleep(2)
         st.rerun()
     else:
         st.error("Gagal mengunggah bukti pembayaran.")
@@ -77,7 +83,6 @@ def get_all_users_for_admin():
     return supabase.table("users").select("*").neq("role", "admin").order("created_at", desc=True).execute().data
 def delete_user_by_id(user_id):
     return supabase.table("users").delete().eq("id", user_id).execute()
-
 
 # --- Fungsi CRUD untuk Produk ---
 def add_product(game_id, paket, harga):
@@ -125,21 +130,17 @@ def get_conversation(user1, user2):
     return conversation
 def get_conversations_for_admin():
     messages = supabase.table("messages").select("*").or_(f"recipient.eq.admin,sender.eq.admin").order("created_at", desc=True).execute().data
-    
     conversations_summary = {}
+    ordered_users = []
     for msg in messages:
         other_user = msg['sender'] if msg['recipient'] == 'admin' else msg['recipient']
-        if other_user not in conversations_summary:
-            conversations_summary[other_user] = {
-                "unread_count": 0,
-                "last_message_time": msg['created_at']
-            }
+        if other_user not in ordered_users:
+            ordered_users.append(other_user)
+            conversations_summary[other_user] = {"unread_count": 0, "last_message_time": msg['created_at']}
         if msg['recipient'] == 'admin' and not msg['is_read']:
             conversations_summary[other_user]['unread_count'] += 1
-            
     sorted_users = sorted(conversations_summary.keys(), key=lambda u: conversations_summary[u]['last_message_time'], reverse=True)
     return conversations_summary, sorted_users
-
 def mark_messages_as_read(recipient, sender):
     supabase.table("messages").update({"is_read": True}).eq("recipient", recipient).eq("sender", sender).execute()
 
@@ -196,8 +197,6 @@ def admin_page():
     if st.sidebar.button("Logout", use_container_width=True): clear_session(); st.rerun()
     st.header(f"{sub_menu}")
     st.divider()
-
-    # Inisialisasi state
     if 'editing_game_id' not in st.session_state: st.session_state.editing_game_id = None
     if 'editing_product_id' not in st.session_state: st.session_state.editing_product_id = None
     if 'selected_chat_user' not in st.session_state: st.session_state.selected_chat_user = None
@@ -207,12 +206,8 @@ def admin_page():
         st.write("Cari, lihat, dan hapus pengguna dari sistem.")
         search_user = st.text_input("🔍 Cari username pengguna...")
         all_users = get_all_users_for_admin()
-        
-        if search_user:
-            all_users = [user for user in all_users if search_user.lower() in user['username'].lower()]
-
-        if not all_users:
-            st.info("Tidak ada pengguna yang cocok dengan pencarian Anda.")
+        if search_user: all_users = [user for user in all_users if search_user.lower() in user['username'].lower()]
+        if not all_users: st.info("Tidak ada pengguna yang cocok dengan pencarian Anda.")
         else:
             for user in all_users:
                 with st.container(border=True):
@@ -221,50 +216,39 @@ def admin_page():
                         col1, col2 = st.columns(2)
                         with col1:
                             if st.button("YA, HAPUS SEKARANG", key=f"confirm_del_{user['id']}", type="primary", use_container_width=True):
-                                with st.status(f"Menghapus user {user['username']}...", expanded=True) as status:
+                                with st.status(f"Menghapus user {user['username']}..."):
                                     delete_user_by_id(user['id'])
-                                    status.update(label=f"User {user['username']} berhasil dihapus.", state="complete", expanded=False)
-                                st.session_state.confirming_delete_user = None
-                                time.sleep(1); st.rerun()
+                                st.session_state.confirming_delete_user = None; st.rerun()
                         with col2:
                              if st.button("Batal", key=f"cancel_del_{user['id']}", use_container_width=True):
                                 st.session_state.confirming_delete_user = None; st.rerun()
                     else:
                         col1, col2, col3 = st.columns([2, 3, 1.5])
-                        with col1:
-                            st.markdown(f"**Username:** `{user['username']}`")
-                        with col2:
-                            st.markdown(f"**Tanggal Daftar:** `{user.get('created_at', 'N/A')}`")
+                        with col1: st.markdown(f"**Username:** `{user['username']}`")
+                        with col2: st.markdown(f"**Tanggal Daftar:** `{user.get('created_at', 'N/A')}`")
                         with col3:
                             if st.button("Hapus User", key=f"del_user_{user['id']}", use_container_width=True):
                                 st.session_state.confirming_delete_user = user['id']; st.rerun()
 
     elif sub_menu == "💬 Kotak Pesan":
         conversations, ordered_users = get_conversations_for_admin()
-        if not conversations:
-            st.info("Belum ada pesan yang masuk dari pengguna.")
-            return
+        if not conversations: st.info("Belum ada pesan yang masuk dari pengguna."); return
         col1, col2 = st.columns([1, 2.5])
         with col1:
             st.markdown("**Percakapan Terbaru**")
             if st.session_state.selected_chat_user is None and ordered_users:
                 st.session_state.selected_chat_user = ordered_users[0]
-            
-            selected_user_from_radio = st.radio(
-                "Pilih pengguna:", options=ordered_users,
-                format_func=lambda u: f"💬 {u} ({conversations[u]['unread_count']} baru)" if conversations[u]['unread_count'] > 0 else f"✅ {u}",
-                label_visibility="collapsed"
-            )
+            selected_user_from_radio = st.radio("Pilih pengguna:", options=ordered_users,
+                format_func=lambda u: f"💬 {u} ({conversations[u]['unread_count']} baru)" if conversations.get(u, {}).get('unread_count', 0) > 0 else f"✅ {u}",
+                label_visibility="collapsed", index=ordered_users.index(st.session_state.selected_chat_user) if st.session_state.selected_chat_user in ordered_users else 0)
             if selected_user_from_radio != st.session_state.get('selected_chat_user'):
-                st.session_state.selected_chat_user = selected_user_from_radio
-                st.rerun()
+                st.session_state.selected_chat_user = selected_user_from_radio; st.rerun()
         with col2:
             chat_user = st.session_state.selected_chat_user
             if chat_user:
                 st.info(f"Anda sedang membalas pesan dari **{chat_user}**.")
                 mark_messages_as_read(recipient="admin", sender=chat_user)
                 conversation = get_conversation("admin", chat_user)
-                
                 chat_container = st.container(height=400, border=True)
                 with chat_container:
                     for msg in conversation:
@@ -272,59 +256,42 @@ def admin_page():
                         avatar_icon = "👑" if role == "assistant" else "🧑‍💻"
                         with st.chat_message(role, avatar=avatar_icon):
                             st.write(msg['content'])
-                            st.caption(f"{msg['created_at']}")
-
+                            st.caption(f"{datetime.fromisoformat(msg['created_at']).strftime('%d %b %Y, %H:%M')}")
                 with st.form(key=f"reply_form_{chat_user}", clear_on_submit=True):
                     reply_content = st.text_area("Ketik balasan Anda:", height=100, label_visibility="collapsed", placeholder="Ketik balasan...")
                     if st.form_submit_button("Kirim Balasan", use_container_width=True, type="primary"):
-                        send_message(sender="admin", recipient=chat_user, content=reply_content)
-                        st.rerun()
-            else:
-                st.write("Pilih percakapan untuk ditampilkan.")
+                        send_message(sender="admin", recipient=chat_user, content=reply_content); st.rerun()
+            else: st.write("Pilih percakapan untuk ditampilkan.")
 
     elif sub_menu == "📝 Kelola Ulasan":
-        games = get_games()
-        game_options = {game['id']: game['name'] for game in games}
-        game_options[0] = "Semua Game"
-        
+        games = get_games(); game_options = {game['id']: game['name'] for game in games}; game_options[0] = "Semua Game"
         selected_game_id = st.selectbox("Filter ulasan berdasarkan game:", options=list(game_options.keys()), format_func=lambda x: game_options[x])
         st.divider()
-
         all_reviews = get_all_reviews()
-        
-        if selected_game_id != 0:
-            filtered_reviews = [r for r in all_reviews if r.get('game_id') == selected_game_id]
-        else:
-            filtered_reviews = all_reviews
-
+        filtered_reviews = [r for r in all_reviews if selected_game_id == 0 or r.get('game_id') == selected_game_id]
         if not filtered_reviews: st.info("Tidak ada ulasan yang cocok dengan filter ini.")
         else:
             for review in filtered_reviews:
                 game_name = review['games']['name'] if review.get('games') else "N/A"
                 with st.container(border=True):
-                    col1, col2 = st.columns([4, 1])
+                    col1, col2 = st.columns([4, 1]);
                     with col1:
                         st.markdown(f"**{review['username']}** @ **{game_name}** ({'⭐' * review['rating']})")
                         st.caption(f"Komentar: *{review['comment']}*")
                         if not review['is_visible']: st.warning("Ulasan ini sedang disembunyikan.", icon="⚠️")
                     with col2:
                         if review['is_visible']:
-                            if st.button("Sembunyikan", key=f"hide_{review['id']}", use_container_width=True):
-                                toggle_review_visibility(review['id'], False); st.rerun()
+                            if st.button("Sembunyikan", key=f"hide_{review['id']}", use_container_width=True): toggle_review_visibility(review['id'], False); st.rerun()
                         else:
-                            if st.button("Tampilkan", key=f"show_{review['id']}", use_container_width=True):
-                                toggle_review_visibility(review['id'], True); st.rerun()
-                        if st.button("Hapus", key=f"del_rev_{review['id']}", type="primary", use_container_width=True):
-                            delete_review(review['id']); st.rerun()
-
+                            if st.button("Tampilkan", key=f"show_{review['id']}", use_container_width=True): toggle_review_visibility(review['id'], True); st.rerun()
+                        if st.button("Hapus", key=f"del_rev_{review['id']}", type="primary", use_container_width=True): delete_review(review['id']); st.rerun()
+    
     elif sub_menu == "🎮 Kelola Game":
         list_tab, add_tab = st.tabs(["Daftar Game", "➕ Tambah Game Baru"])
         with add_tab:
             with st.form("AddGameForm", clear_on_submit=True):
-                st.markdown("**Formulir Game Baru**")
-                game_name = st.text_input("Nama Game")
-                game_desc = st.text_area("Deskripsi Singkat")
-                game_logo = st.file_uploader("Upload Logo Game", type=["png", "jpg", "jpeg"])
+                st.markdown("**Formulir Game Baru**"); game_name = st.text_input("Nama Game")
+                game_desc = st.text_area("Deskripsi Singkat"); game_logo = st.file_uploader("Upload Logo Game", type=["png", "jpg", "jpeg"])
                 if st.form_submit_button("Tambah Game", type="primary", use_container_width=True):
                     if not all([game_name, game_logo]): st.warning("Nama Game dan Logo wajib diisi.")
                     else:
@@ -334,8 +301,7 @@ def admin_page():
                             else: status.update(label="Gagal mengupload logo.", state="error")
                         time.sleep(1); st.rerun()
         with list_tab:
-            st.markdown("**Daftar Game Saat Ini**")
-            games = get_games()
+            st.markdown("**Daftar Game Saat Ini**"); games = get_games()
             if not games: st.info("Belum ada game yang ditambahkan.")
             else:
                 for game in games:
@@ -353,8 +319,7 @@ def admin_page():
                                             update_game(game['id'], new_name, new_desc, logo_url); status.update(label="Game diperbarui.", state="complete")
                                         st.session_state.editing_game_id = None; time.sleep(1); st.rerun()
                                 with col2:
-                                    if st.form_submit_button("Batal", use_container_width=True):
-                                        st.session_state.editing_game_id = None; st.rerun()
+                                    if st.form_submit_button("Batal", use_container_width=True): st.session_state.editing_game_id = None; st.rerun()
                     else:
                         with st.container(border=True):
                             col1, col2, col3 = st.columns([1, 4, 1.5]);
@@ -380,12 +345,10 @@ def admin_page():
                             with st.status("Menambahkan produk..."): add_product(selected_game_id, paket, harga)
                             st.success("Produk berhasil ditambahkan."); time.sleep(1); st.rerun()
             with list_tab:
-                st.selectbox("Filter berdasarkan game:", options=[0] + list(game_options.keys()), format_func=lambda x: "Semua Game" if x == 0 else game_options[x], key="product_filter")
+                filter_options = {0: "Semua Game"}; filter_options.update(game_options)
+                selected_filter_id = st.selectbox("Tampilkan produk untuk game:", options=list(filter_options.keys()), format_func=lambda x: filter_options[x], key="product_filter")
                 st.markdown("**Daftar Produk Saat Ini**"); all_products = get_products_with_game_info()
-                
-                if st.session_state.product_filter != 0:
-                    all_products = [p for p in all_products if p.get('game_id') == st.session_state.product_filter]
-
+                if selected_filter_id != 0: all_products = [p for p in all_products if p.get('game_id') == selected_filter_id]
                 if not all_products: st.info("Tidak ada produk yang cocok dengan filter ini.")
                 else:
                     for p in all_products:
@@ -411,19 +374,15 @@ def admin_page():
                                 with col2:
                                     if st.button("Ubah", key=f"edit_prod_{p['id']}", use_container_width=True): st.session_state.editing_product_id = p['id']; st.rerun()
                                     if st.button("Hapus", key=f"del_prod_{p['id']}", use_container_width=True, type="primary"): delete_product(p['id']); st.rerun()
-
+                                    
     elif sub_menu == "🧾 Daftar Transaksi":
         with st.expander("🔍 Filter & Cari Transaksi"):
             status_options = ["Semua Status", "Menunggu", "Diproses", "Selesai", "Gagal"]
             selected_status = st.selectbox("Filter berdasarkan status:", options=status_options)
             search_username = st.text_input("Cari berdasarkan username:")
-        
         transactions = get_all_transactions()
-        if selected_status != "Semua Status":
-            transactions = [t for t in transactions if t['status'] == selected_status]
-        if search_username:
-            transactions = [t for t in transactions if search_username.lower() in t['username'].lower()]
-
+        if selected_status != "Semua Status": transactions = [t for t in transactions if t['status'] == selected_status]
+        if search_username: transactions = [t for t in transactions if search_username.lower() in t['username'].lower()]
         if not transactions: st.info("Tidak ada transaksi yang cocok dengan filter ini.")
         else:
             for t in transactions:
@@ -442,7 +401,7 @@ def admin_page():
                     st.markdown("**Update Status Pesanan:**")
                     form_col1, form_col2 = st.columns(2)
                     with form_col1:
-                        current_index = status_options.index(t['status']) if t['status'] in status_options else 0
+                        current_index = status_options.index(t['status']) if t['status'] in status_options else 1
                         new_status = st.selectbox("Ubah Status ke:", options=status_options[1:], index=current_index-1 if current_index > 0 else 0, key=f"status_{t['id']}")
                     with form_col2:
                         st.write(""); st.write("")
@@ -476,13 +435,19 @@ def user_page():
         username = st.session_state['user']
         mark_messages_as_read(recipient=username, sender="admin")
         conversation = get_conversation(username, "admin")
+        
+        if not conversation:
+            st.info("Belum ada percakapan. Mulai percakapan pertama Anda dengan Admin di bawah ini!")
+        
         with st.container(height=500, border=True):
             for msg in conversation:
                 role = "user" if msg['sender'] == username else "assistant"
                 avatar_icon = "🧑‍💻" if role == "user" else "👑"
                 with st.chat_message(role, avatar=avatar_icon):
                     st.write(msg['content'])
-                    st.caption(f"{msg['created_at']}")
+                    dt_object = datetime.fromisoformat(msg['created_at'])
+                    st.caption(f"{dt_object.strftime('%d %b %Y, %H:%M')}")
+        
         with st.form("message_form", clear_on_submit=True):
             user_message = st.text_area("Ketik pesan Anda untuk Admin:", height=100, label_visibility="collapsed", placeholder="Ketik pesan Anda...")
             if st.form_submit_button("Kirim Pesan", use_container_width=True, type="primary"):
@@ -518,10 +483,21 @@ def user_page():
     elif page == "🛒 Beranda & Top Up":
         if 'pending_payment' in st.session_state:
             pending_trans = st.session_state.pending_payment
-            st.success(f"Pesanan (ID: {pending_trans['id']}) berhasil dibuat!")
-            st.info("Langkah Terakhir: Lakukan Pembayaran")
-            st.markdown(f"Silakan transfer sejumlah **Rp {pending_trans['harga']:,}** ke nomor **DANA/GOPAY** di bawah ini:\n### 📞 **089633436959**\n**PENTING:** Setelah transfer, buka menu **Riwayat Transaksi** dan unggah bukti pembayaran Anda.")
-            if st.button("Saya Mengerti"): del st.session_state.pending_payment; st.rerun()
+            st.title("Langkah Terakhir!")
+            st.success(f"Pesanan (ID: {pending_trans['id']}) untuk **{pending_trans['paket']}** berhasil dibuat!")
+            st.info("Silakan selesaikan pembayaran Anda.")
+            with st.container(border=True):
+                st.markdown("#### 1. Lakukan Pembayaran")
+                st.markdown(f"Silakan transfer sejumlah **Rp {pending_trans['harga']:,}** ke nomor **DANA/GOPAY** di bawah ini:")
+                st.code("089633436959", language="text")
+                st.markdown("#### 2. Unggah Bukti Pembayaran")
+                st.write("Setelah transfer berhasil, unggah screenshot bukti pembayaran di bawah ini. Status pesanan akan otomatis berubah menjadi 'Diproses'.")
+                uploaded_proof = st.file_uploader("Pilih file bukti pembayaran Anda...", type=["png", "jpg", "jpeg"], key=f"proof_direct_{pending_trans['id']}")
+                if uploaded_proof is not None:
+                    upload_payment_proof(pending_trans['id'], uploaded_proof)
+            st.divider()
+            if st.button("Lakukan Pesanan Lain"):
+                del st.session_state.pending_payment; st.rerun()
             return
 
         if "user_selected_game" not in st.session_state: st.session_state.user_selected_game = None
@@ -616,7 +592,7 @@ def user_page():
                 for review in reviews_to_show:
                     with st.container(border=True):
                         st.markdown(f"**{review['username']}** - `{'⭐' * review['rating']}`")
-                        st.caption(f"Pada: {review['created_at']}")
+                        st.caption(f"Pada: {datetime.fromisoformat(review['created_at']).strftime('%d %b %Y')}")
                         st.write(f"*{review['comment']}*")
                 if len(game_reviews) > st.session_state.visible_reviews_count:
                     if st.button("Lihat Ulasan Lainnya..."):
@@ -638,12 +614,12 @@ def user_page():
                 with st.container(border=True):
                     st.write(f"#### {t['paket']} (ID: {t['id']})")
                     st.write(f"**Game:** {t['game']} | **Harga:** Rp {t['harga']:,}")
-                    status_color = {"Selesai": "green", "Diproses": "orange", "Gagal": "red"}.get(t['status'], "gray")
+                    status_color = {"Selesai": "green", "Diproses": "orange", "Gagal": "red", "Menunggu":"blue"}.get(t['status'], "gray")
                     st.write(f"Status: **<span style='color:{status_color};'>{t['status']}</span>**", unsafe_allow_html=True)
-                    if t['status'] == 'Menunggu':
-                        st.markdown("**Aksi Dibutuhkan:**")
-                        uploaded_proof = st.file_uploader("Unggah Bukti Pembayaran Anda", type=["png", "jpg", "jpeg"], key=f"proof_{t['id']}")
-                        if uploaded_proof: upload_payment_proof(t['id'], uploaded_proof)
+                    if t['status'] == 'Menunggu' and not t.get('payment_proof_url'):
+                        with st.expander("Unggah Bukti Pembayaran"):
+                            uploaded_proof = st.file_uploader("Pilih file bukti...", type=["png", "jpg", "jpeg"], key=f"proof_history_{t['id']}")
+                            if uploaded_proof: upload_payment_proof(t['id'], uploaded_proof)
                     if t.get('payment_proof_url'):
                         with st.expander("Lihat Bukti Pembayaran"): st.image(t['payment_proof_url'])
 
