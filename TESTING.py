@@ -77,6 +77,7 @@ def get_all_users_for_admin():
 def delete_user_by_id(user_id):
     return supabase.table("users").delete().eq("id", user_id).execute()
 
+
 # --- Fungsi CRUD untuk Produk ---
 def add_product(game_id, paket, harga):
     supabase.table("products").insert({"game_id": game_id, "paket": paket, "harga": harga}).execute()
@@ -364,6 +365,7 @@ def admin_page():
         if not transactions: st.info("Belum ada transaksi.")
         else:
             for t in transactions:
+                # PERBAIKAN: Menambahkan 'else' yang hilang
                 nickname, metode = (t['user_nickname'].split("|", 1) + ["-"])[:2] if t.get('user_nickname') else (t.get('user_nickname'), "-")
                 expander_title = f"ID: {t['id']} | User: {t['username']} | Game: {t.get('game', 'N/A')} | Status: {t['status']}"
                 with st.expander(expander_title):
@@ -574,6 +576,7 @@ def user_page():
         if not transactions: st.info("Anda belum memiliki riwayat transaksi.")
         else:
             for t in transactions:
+                # PERBAIKAN: Menambahkan 'else' yang hilang
                 nickname, metode = (t['user_nickname'].split("|", 1) + ["-"])[:2] if t.get('user_nickname') else (t.get('user_nickname'), "-")
                 with st.container(border=True):
                     st.write(f"#### {t['paket']} (ID: {t['id']})")
