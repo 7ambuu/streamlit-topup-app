@@ -214,9 +214,10 @@ def admin_page():
                         col1, col2 = st.columns(2)
                         with col1:
                             if st.button("YA, HAPUS SEKARANG", key=f"confirm_del_{user['id']}", type="primary", use_container_width=True):
-                                with st.status(f"Menghapus user {user['username']}..."):
+                                with st.status(f"Menghapus user {user['username']}...", expanded=True) as status:
                                     delete_user_by_id(user['id'])
-                                st.session_state.confirming_delete_user = None; st.rerun()
+                                    status.update(label=f"User {user['username']} berhasil dihapus.", state="complete", expanded=False)
+                                st.session_state.confirming_delete_user = None; time.sleep(1); st.rerun()
                         with col2:
                              if st.button("Batal", key=f"cancel_del_{user['id']}", use_container_width=True):
                                 st.session_state.confirming_delete_user = None; st.rerun()
