@@ -39,15 +39,18 @@ def upload_image_to_storage(file_uploader_object, bucket_name):
         return None
 
 def upload_payment_proof(transaction_id, uploaded_file):
-    with st.status("Mengunggah bukti pembayaran..."):
+    with st.spinner("Mengunggah bukti pembayaran..."):
         proof_url = upload_image_to_storage(uploaded_file, "product-images") 
     if proof_url:
         supabase.table("transactions").update({"payment_proof_url": proof_url, "status": "Diproses"}).eq("id", transaction_id).execute()
         st.success("Bukti pembayaran berhasil diunggah!")
-        if f"proof_{transaction_id}" in st.session_state: del st.session_state[f"proof_{transaction_id}"]
+        if f"proof_direct_{transaction_id}" in st.session_state:
+             del st.session_state[f"proof_direct_{transaction_id}"]
+        if f"proof_history_{transaction_id}" in st.session_state:
+             del st.session_state[f"proof_history_{transaction_id}"]
+        st.session_state.pop('pending_payment', None)
+        time.sleep(1)
         st.rerun()
-    else:
-        st.error("Gagal mengunggah bukti pembayaran.")
 
 # --- Fungsi CRUD untuk Game ---
 def get_games():
@@ -211,10 +214,9 @@ def admin_page():
                         col1, col2 = st.columns(2)
                         with col1:
                             if st.button("YA, HAPUS SEKARANG", key=f"confirm_del_{user['id']}", type="primary", use_container_width=True):
-                                with st.status(f"Menghapus user {user['username']}...", expanded=True) as status:
+                                with st.status(f"Menghapus user {user['username']}..."):
                                     delete_user_by_id(user['id'])
-                                    status.update(label=f"User {user['username']} berhasil dihapus.", state="complete", expanded=False)
-                                st.session_state.confirming_delete_user = None; time.sleep(1); st.rerun()
+                                st.session_state.confirming_delete_user = None; st.rerun()
                         with col2:
                              if st.button("Batal", key=f"cancel_del_{user['id']}", use_container_width=True):
                                 st.session_state.confirming_delete_user = None; st.rerun()
@@ -258,6 +260,7 @@ def admin_page():
                         send_message(sender="admin", recipient=chat_user, content=reply_content); st.rerun()
             else:
                 st.write("Pilih percakapan untuk ditampilkan.")
+
     elif sub_menu == "📝 Kelola Ulasan":
         games = get_games(); game_options = {game['id']: game['name'] for game in games}; game_options[0] = "Semua Game"
         selected_game_id = st.selectbox("Filter ulasan berdasarkan game:", options=list(game_options.keys()), format_func=lambda x: game_options[x])
@@ -280,6 +283,7 @@ def admin_page():
                         else:
                             if st.button("Tampilkan", key=f"show_{review['id']}", use_container_width=True): toggle_review_visibility(review['id'], True); st.rerun()
                         if st.button("Hapus", key=f"del_rev_{review['id']}", type="primary", use_container_width=True): delete_review(review['id']); st.rerun()
+                            
     elif sub_menu == "🎮 Kelola Game":
         list_tab, add_tab = st.tabs(["Daftar Game", "➕ Tambah Game Baru"])
         with add_tab:
@@ -322,10 +326,11 @@ def admin_page():
                             with col3:
                                 if st.button("Ubah", key=f"edit_game_{game['id']}", use_container_width=True): st.session_state.editing_game_id = game['id']; st.rerun()
                                 if st.button("Hapus", key=f"del_game_{game['id']}", type="primary", use_container_width=True): delete_game(game['id']); st.success(f"Game {game['name']} dihapus."); st.rerun()
+
     elif sub_menu == "🛍️ Kelola Produk":
         list_tab, add_tab = st.tabs(["Daftar Produk", "➕ Tambah Produk Baru"])
         games_list = get_games(); game_options = {game['id']: game['name'] for game in games_list}
-        if not game_options: st.warning("Tidak bisa mengelola produk. Silakan tambah data game di menu 'Kelola Game'.")
+        if not game_options: st.warning("Tidak bisa mengelola produk. Silakan tambah data game terlebih dahulu di menu 'Kelola Game'.")
         else:
             with add_tab:
                 with st.form("AddProductForm", clear_on_submit=True):
@@ -366,6 +371,7 @@ def admin_page():
                                 with col2:
                                     if st.button("Ubah", key=f"edit_prod_{p['id']}", use_container_width=True): st.session_state.editing_product_id = p['id']; st.rerun()
                                     if st.button("Hapus", key=f"del_prod_{p['id']}", use_container_width=True, type="primary"): delete_product(p['id']); st.rerun()
+
     elif sub_menu == "🧾 Daftar Transaksi":
         with st.expander("🔍 Filter & Cari Transaksi"):
             status_options = ["Semua Status", "Menunggu", "Diproses", "Selesai", "Gagal"]
@@ -397,7 +403,9 @@ def admin_page():
                     with form_col2:
                         st.write(""); st.write("")
                         if st.button("Simpan Perubahan", key=f"up_{t['id']}", use_container_width=True, type="primary"):
-                            with st.status("Mengupdate status..."): update_transaction_status(t['id'], new_status)
+                            update_transaction_status(t['id'], new_status)
+                            st.toast(f"Status transaksi ID {t['id']} diubah ke {new_status}!", icon="✅")
+                            time.sleep(1)
                             st.rerun()
 
 # --- UI: HALAMAN USER ---
@@ -604,7 +612,7 @@ def user_page():
                     st.write(f"**Game:** {t['game']} | **Harga:** Rp {t['harga']:,}")
                     status_color = {"Selesai": "green", "Diproses": "orange", "Gagal": "red", "Menunggu":"blue"}.get(t['status'], "gray")
                     st.write(f"Status: **<span style='color:{status_color};'>{t['status']}</span>**", unsafe_allow_html=True)
-                    if t['status'] == 'Menunggu':
+                    if t['status'] == 'Menunggu' and not t.get('payment_proof_url'):
                         with st.expander("Unggah Bukti Pembayaran"):
                             uploaded_proof = st.file_uploader("Pilih file bukti...", type=["png", "jpg", "jpeg"], key=f"proof_history_{t['id']}")
                             if uploaded_proof: upload_payment_proof(t['id'], uploaded_proof)
