@@ -185,8 +185,17 @@ def login_register_menu():
 def admin_page():
     st.sidebar.title("✨ ARRA")
     st.sidebar.header("👑 ADMIN PANEL")
-    sub_menu = st.sidebar.radio("Menu", ["🧾 Daftar Transaksi", "🛍️ Kelola Produk", "🎮 Kelola Game", "📝 Kelola Ulasan", "💬 Kotak Pesan", "👥 Kelola User"])
+    menu_options = {
+        "🧾 Daftar Transaksi": "Daftar Transaksi",
+        "🛍️ Kelola Produk": "Kelola Produk",
+        "🎮 Kelola Game": "Kelola Game",
+        "📝 Kelola Ulasan": "Kelola Ulasan",
+        "💬 Kotak Pesan": "Kotak Pesan",
+        "👥 Kelola User": "Kelola User"
+    }
+    sub_menu = st.sidebar.radio("Menu", list(menu_options.keys()))
     if st.sidebar.button("Logout", use_container_width=True): clear_session(); st.rerun()
+    
     st.header(f"{sub_menu}")
     st.divider()
 
@@ -195,42 +204,34 @@ def admin_page():
     if 'selected_chat_user' not in st.session_state: st.session_state.selected_chat_user = None
 
     if sub_menu == "👥 Kelola User":
-        st.write("Lihat dan hapus pengguna dari sistem.")
         all_users = get_all_users_for_admin()
-        if not all_users:
-            st.info("Tidak ada pengguna terdaftar selain admin.")
+        if not all_users: st.info("Tidak ada pengguna terdaftar selain admin.")
         else:
             for user in all_users:
                 with st.container(border=True):
                     col1, col2, col3 = st.columns([2, 3, 1])
-                    with col1:
-                        st.markdown(f"**Username:** `{user['username']}`")
-                    with col2:
-                        st.markdown(f"**Tanggal Daftar:** `{user.get('created_at', 'N/A')}`")
+                    with col1: st.markdown(f"**Username:** `{user['username']}`")
+                    with col2: st.markdown(f"**Tanggal Daftar:** `{user.get('created_at', 'N/A')}`")
                     with col3:
                         if st.button("Hapus User", key=f"del_user_{user['id']}", type="primary", use_container_width=True):
                             with st.status(f"Menghapus user {user['username']}...", expanded=True) as status:
                                 delete_user_by_id(user['id'])
                                 status.update(label=f"User {user['username']} berhasil dihapus.", state="complete", expanded=False)
-                            time.sleep(1)
-                            st.rerun()
+                            time.sleep(1); st.rerun()
+
     elif sub_menu == "💬 Kotak Pesan":
         conversations, ordered_users = get_conversations_for_admin()
-        if not conversations:
-            st.info("Belum ada pesan yang masuk dari pengguna.")
-            return
+        if not conversations: st.info("Belum ada pesan yang masuk dari pengguna."); return
         col1, col2 = st.columns([1, 2.5])
         with col1:
             st.markdown("**Percakapan:**")
             if st.session_state.selected_chat_user is None and ordered_users:
                 st.session_state.selected_chat_user = ordered_users[0]
-            selected_user_from_radio = st.radio(
-                "Pilih pengguna:", options=ordered_users,
+            selected_user_from_radio = st.radio("Pilih pengguna:", options=ordered_users,
                 format_func=lambda u: f"💬 {u} ({conversations[u]['unread_count']} baru)" if conversations[u]['unread_count'] > 0 else f"✅ {u}",
                 label_visibility="collapsed")
             if selected_user_from_radio != st.session_state.get('selected_chat_user'):
-                st.session_state.selected_chat_user = selected_user_from_radio
-                st.rerun()
+                st.session_state.selected_chat_user = selected_user_from_radio; st.rerun()
         with col2:
             chat_user = st.session_state.selected_chat_user
             if chat_user:
@@ -238,19 +239,18 @@ def admin_page():
                 mark_messages_as_read(recipient="admin", sender=chat_user)
                 conversation = get_conversation("admin", chat_user)
                 chat_container = st.container(height=400, border=True)
-                with chat_container:
-                    for msg in conversation:
+                for msg in conversation:
+                    with chat_container:
                         role = "assistant" if msg['sender'] == 'admin' else "user"
                         avatar_icon = "👑" if role == "assistant" else "🧑‍💻"
                         with st.chat_message(role, avatar=avatar_icon):
-                            st.write(msg['content'])
-                            st.caption(f"{msg['created_at']}")
+                            st.write(msg['content']); st.caption(f"{msg['created_at']}")
                 with st.form(key=f"reply_form_{chat_user}", clear_on_submit=True):
                     reply_content = st.text_area("Ketik balasan Anda:", height=100, label_visibility="collapsed", placeholder="Ketik balasan...")
                     if st.form_submit_button("Kirim Balasan", use_container_width=True, type="primary"):
                         send_message(sender="admin", recipient=chat_user, content=reply_content); st.rerun()
-            else:
-                st.write("Pilih percakapan untuk ditampilkan.")
+            else: st.write("Pilih percakapan untuk ditampilkan.")
+
     elif sub_menu == "📝 Kelola Ulasan":
         all_reviews = get_all_reviews()
         if not all_reviews: st.info("Belum ada ulasan dari pengguna.")
@@ -272,25 +272,23 @@ def admin_page():
                                 toggle_review_visibility(review['id'], True); st.rerun()
                         if st.button("Hapus", key=f"del_rev_{review['id']}", type="primary", use_container_width=True):
                             delete_review(review['id']); st.rerun()
+
     elif sub_menu == "🎮 Kelola Game":
         list_tab, add_tab = st.tabs(["Daftar Game", "➕ Tambah Game Baru"])
         with add_tab:
             with st.form("AddGameForm", clear_on_submit=True):
-                st.markdown("**Formulir Game Baru**")
-                game_name = st.text_input("Nama Game")
-                game_desc = st.text_area("Deskripsi Singkat")
-                game_logo = st.file_uploader("Upload Logo Game", type=["png", "jpg", "jpeg"])
+                st.markdown("**Formulir Game Baru**"); game_name = st.text_input("Nama Game")
+                game_desc = st.text_area("Deskripsi Singkat"); game_logo = st.file_uploader("Upload Logo Game", type=["png", "jpg", "jpeg"])
                 if st.form_submit_button("Tambah Game", type="primary", use_container_width=True):
                     if not all([game_name, game_logo]): st.warning("Nama Game dan Logo wajib diisi.")
                     else:
-                        with st.status("Menambahkan game baru...", expanded=True) as status:
+                        with st.status("Menambahkan game baru...", expanded=False) as status:
                             logo_url = upload_image_to_storage(game_logo, "product-images")
                             if logo_url: add_game(game_name, game_desc, logo_url); status.update(label=f"Game '{game_name}' berhasil ditambahkan.", state="complete")
                             else: status.update(label="Gagal mengupload logo.", state="error")
                         time.sleep(1); st.rerun()
         with list_tab:
-            st.markdown("**Daftar Game Saat Ini**")
-            games = get_games()
+            st.markdown("**Daftar Game Saat Ini**"); games = get_games()
             if not games: st.info("Belum ada game yang ditambahkan.")
             else:
                 for game in games:
@@ -298,17 +296,18 @@ def admin_page():
                         with st.container(border=True):
                             with st.form(key=f"edit_game_{game['id']}"):
                                 st.write(f"**Mengubah Game: {game['name']}**"); new_name = st.text_input("Nama Game", value=game['name'])
-                                new_desc = st.text_area("Deskripsi", value=game['description']); new_logo = st.file_uploader("Ganti Logo (Kosongkan jika tidak ingin diubah)")
+                                new_desc = st.text_area("Deskripsi", value=game['description']); new_logo = st.file_uploader("Ganti Logo (Kosongkan jika tidak diubah)")
                                 col1, col2 = st.columns(2)
                                 with col1:
                                     if st.form_submit_button("Simpan", type="primary", use_container_width=True):
-                                        with st.status("Memperbarui data...", expanded=True) as status:
+                                        with st.status("Memperbarui data...", expanded=False) as status:
                                             logo_url = game['logo_url']
                                             if new_logo: logo_url = upload_image_to_storage(new_logo, "product-images")
                                             update_game(game['id'], new_name, new_desc, logo_url); status.update(label="Game diperbarui.", state="complete")
                                         st.session_state.editing_game_id = None; time.sleep(1); st.rerun()
                                 with col2:
-                                    if st.form_submit_button("Batal", use_container_width=True): st.session_state.editing_game_id = None; st.rerun()
+                                    if st.form_submit_button("Batal", use_container_width=True):
+                                        st.session_state.editing_game_id = None; st.rerun()
                     else:
                         with st.container(border=True):
                             col1, col2, col3 = st.columns([1, 4, 1.5]);
@@ -317,6 +316,7 @@ def admin_page():
                             with col3:
                                 if st.button("Ubah", key=f"edit_game_{game['id']}", use_container_width=True): st.session_state.editing_game_id = game['id']; st.rerun()
                                 if st.button("Hapus", key=f"del_game_{game['id']}", type="primary", use_container_width=True): delete_game(game['id']); st.success(f"Game {game['name']} dihapus."); st.rerun()
+
     elif sub_menu == "🛍️ Kelola Produk":
         list_tab, add_tab = st.tabs(["Daftar Produk", "➕ Tambah Produk Baru"])
         games_list = get_games()
@@ -359,6 +359,7 @@ def admin_page():
                                 with col2:
                                     if st.button("Ubah", key=f"edit_prod_{p['id']}", use_container_width=True): st.session_state.editing_product_id = p['id']; st.rerun()
                                     if st.button("Hapus", key=f"del_prod_{p['id']}", use_container_width=True, type="primary"): delete_product(p['id']); st.rerun()
+                                    
     elif sub_menu == "🧾 Daftar Transaksi":
         transactions = get_all_transactions()
         if not transactions: st.info("Belum ada transaksi.")
@@ -414,7 +415,6 @@ def user_page():
         username = st.session_state['user']
         mark_messages_as_read(recipient=username, sender="admin")
         conversation = get_conversation(username, "admin")
-        
         with st.container(height=500, border=True):
             for msg in conversation:
                 role = "user" if msg['sender'] == username else "assistant"
@@ -422,7 +422,6 @@ def user_page():
                 with st.chat_message(role, avatar=avatar_icon):
                     st.write(msg['content'])
                     st.caption(f"{msg['created_at']}")
-        
         with st.form("message_form", clear_on_submit=True):
             user_message = st.text_area("Ketik pesan Anda untuk Admin:", height=100, label_visibility="collapsed", placeholder="Ketik pesan Anda...")
             if st.form_submit_button("Kirim Pesan", use_container_width=True, type="primary"):
