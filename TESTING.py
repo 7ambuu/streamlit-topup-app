@@ -168,8 +168,19 @@ def login_register_menu():
     st.sidebar.title("✨ ARRA")
     st.sidebar.info("Silakan Login atau Register untuk melanjutkan.")
     st.title("Selamat Datang di ✨ ARRA")
-    st.write("Platform Top Up Game Terpercaya Pilihan Gamers.")
+    
+    # PERUBAHAN: Penambahan Deskripsi
+    st.markdown("""
+    **ARRA** hadir sebagai platform top up game terpercaya, 
+    didirikan oleh **Azzam Risky Refando Arif** untuk memenuhi kebutuhan para gamer di Indonesia. 
+    Kami berkomitmen untuk menyediakan layanan top up yang **cepat, aman, dan terjangkau** untuk berbagai game favorit Anda.
+
+    Nikmati pengalaman top up tanpa ribet, dengan pilihan pembayaran yang beragam 
+    dan dukungan pelanggan yang siap membantu. Bergabunglah dengan ribuan gamer lainnya 
+    yang telah mempercayakan kebutuhan top up mereka kepada ARRA!
+    """)
     st.divider()
+
     login_tab, register_tab = st.tabs(["🔑 Login", "✍️ Register"])
     with login_tab:
         with st.form("login_form"):
@@ -241,6 +252,7 @@ def admin_page():
             else: st.info("Belum ada data produk untuk diunduh.")
         with st.container(border=True):
             st.subheader("Data Pengguna")
+            st.write("Berisi semua data pengguna yang terdaftar (kecuali admin).")
             with st.spinner("Menyiapkan data pengguna..."):
                 users_data = get_all_users_for_admin()
             if users_data:
@@ -255,7 +267,8 @@ def admin_page():
         search_user = st.text_input("🔍 Cari username pengguna...")
         all_users = get_all_users_for_admin()
         if search_user: all_users = [user for user in all_users if search_user.lower() in user['username'].lower()]
-        if not all_users: st.info("Tidak ada pengguna yang cocok dengan pencarian Anda.")
+        if not all_users:
+            st.info("Tidak ada pengguna yang cocok dengan pencarian Anda.")
         else:
             for user in all_users:
                 with st.container(border=True):
@@ -444,27 +457,21 @@ def admin_page():
                         st.markdown(f"**Paket:** {t['paket']} (Rp {t['harga']:,})"); st.markdown(f"**Metode Bayar:** {metode}")
                     st.divider()
                     st.markdown("**Update Status Pesanan:**")
-                    
                     with st.form(key=f"update_status_form_{t['id']}"):
                         status_options_form = ["Diproses", "Selesai", "Gagal"]
-                        try:
-                            current_index_form = status_options_form.index(t['status'])
-                        except ValueError:
-                            current_index_form = 0
+                        try: current_index_form = status_options_form.index(t['status'])
+                        except ValueError: current_index_form = 0
                         new_status = st.selectbox("Ubah Status ke:", options=status_options_form, index=current_index_form, key=f"status_{t['id']}")
-                        
                         reason_input = ""
                         if new_status == 'Gagal':
                             reason_input = st.text_area("Alasan Kegagalan (Wajib diisi jika status Gagal):", key=f"reason_{t['id']}", value=t.get('failure_reason', ''))
-
                         if st.form_submit_button("Simpan Perubahan", use_container_width=True, type="primary"):
                             if new_status == 'Gagal' and not reason_input.strip():
                                 st.warning("Harap isi alasan mengapa transaksi ini digagalkan.")
                             else:
                                 update_transaction_status(t['id'], new_status, reason_input)
                                 st.toast(f"Status transaksi ID {t['id']} diubah ke {new_status}!", icon="✅")
-                                time.sleep(1)
-                                st.rerun()
+                                time.sleep(1); st.rerun()
 
 # --- UI: HALAMAN USER ---
 def user_page():
@@ -670,10 +677,8 @@ def user_page():
                     st.write(f"**Game:** {t['game']} | **Harga:** Rp {t['harga']:,}")
                     status_color = {"Selesai": "green", "Diproses": "orange", "Gagal": "red", "Menunggu":"blue"}.get(t['status'], "gray")
                     st.write(f"Status: **<span style='color:{status_color};'>{t['status']}</span>**", unsafe_allow_html=True)
-                    
                     if t['status'] == 'Gagal' and t.get('failure_reason'):
                         st.error(f"**Alasan Kegagalan:** {t['failure_reason']}", icon="❗")
-
                     if t['status'] == 'Menunggu' and not t.get('payment_proof_url'):
                         with st.expander("Unggah Bukti Pembayaran"):
                             uploaded_proof = st.file_uploader("Pilih file bukti...", type=["png", "jpg", "jpeg"], key=f"proof_history_{t['id']}")
