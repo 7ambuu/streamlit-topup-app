@@ -9,6 +9,7 @@ import numpy as np
 import time
 from collections import Counter
 from datetime import datetime
+import pandas as pd
 
 # --- KONFIGURASI APLIKASI ---
 try:
@@ -39,18 +40,25 @@ def upload_image_to_storage(file_uploader_object, bucket_name):
         return None
 
 def upload_payment_proof(transaction_id, uploaded_file):
-    with st.spinner("Mengunggah bukti pembayaran..."):
+    with st.status("Mengunggah bukti pembayaran..."):
         proof_url = upload_image_to_storage(uploaded_file, "product-images") 
     if proof_url:
         supabase.table("transactions").update({"payment_proof_url": proof_url, "status": "Diproses"}).eq("id", transaction_id).execute()
         st.success("Bukti pembayaran berhasil diunggah!")
-        if f"proof_direct_{transaction_id}" in st.session_state:
-             del st.session_state[f"proof_direct_{transaction_id}"]
-        if f"proof_history_{transaction_id}" in st.session_state:
-             del st.session_state[f"proof_history_{transaction_id}"]
         st.session_state.pop('pending_payment', None)
+        if f"proof_direct_{transaction_id}" in st.session_state: del st.session_state[f"proof_direct_{transaction_id}"]
+        if f"proof_history_{transaction_id}" in st.session_state: del st.session_state[f"proof_history_{transaction_id}"]
         time.sleep(1)
         st.rerun()
+
+@st.cache_data(ttl=600)
+def to_excel(data: list) -> bytes:
+    df = pd.DataFrame(data)
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Data')
+    processed_data = output.getvalue()
+    return processed_data
 
 # --- Fungsi CRUD untuk Game ---
 def get_games():
@@ -77,7 +85,7 @@ def get_user_data(username):
 def update_user_password(username, new_password):
     supabase.table("users").update({"password_hash": hash_password(new_password)}).eq("username", username).execute()
 def get_all_users_for_admin():
-    return supabase.table("users").select("*").neq("role", "admin").order("created_at", desc=True).execute().data
+    return supabase.table("users").select("id, username, role, created_at").neq("role", "admin").order("created_at", desc=True).execute().data
 def delete_user_by_id(user_id):
     return supabase.table("users").delete().eq("id", user_id).execute()
 
@@ -190,7 +198,7 @@ def login_register_menu():
 def admin_page():
     st.sidebar.title("✨ ARRA")
     st.sidebar.header("👑 ADMIN PANEL")
-    sub_menu = st.sidebar.radio("Menu", ["🧾 Daftar Transaksi", "🛍️ Kelola Produk", "🎮 Kelola Game", "📝 Kelola Ulasan", "💬 Kotak Pesan", "👥 Kelola User"])
+    sub_menu = st.sidebar.radio("Menu", ["📊 Laporan & Unduh Data", "🧾 Daftar Transaksi", "🛍️ Kelola Produk", "🎮 Kelola Game", "📝 Kelola Ulasan", "💬 Kotak Pesan", "👥 Kelola User"])
     if st.sidebar.button("Logout", use_container_width=True): clear_session(); st.rerun()
     st.header(f"{sub_menu}")
     st.divider()
@@ -199,25 +207,59 @@ def admin_page():
     if 'editing_product_id' not in st.session_state: st.session_state.editing_product_id = None
     if 'selected_chat_user' not in st.session_state: st.session_state.selected_chat_user = None
     if 'confirming_delete_user' not in st.session_state: st.session_state.confirming_delete_user = None
+    
+    if sub_menu == "📊 Laporan & Unduh Data":
+        st.write("Pilih dan unduh data dari database Anda dalam format Excel.")
+        
+        st.subheader("Laporan Transaksi")
+        st.write("Berisi semua data transaksi yang pernah tercatat di sistem.")
+        with st.spinner("Menyiapkan data transaksi..."):
+            transactions_data = get_all_transactions()
+        if transactions_data:
+            excel_trans = to_excel(transactions_data)
+            st.download_button(
+                label="📥 Unduh Laporan Transaksi",
+                data=excel_trans,
+                file_name=f"laporan_transaksi_arra_{time.strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        else:
+            st.info("Belum ada data transaksi untuk diunduh.")
+        st.divider()
 
-    if sub_menu == "👥 Kelola User":
+        st.subheader("Data Pengguna")
+        st.write("Berisi semua data pengguna yang terdaftar (kecuali admin).")
+        with st.spinner("Menyiapkan data pengguna..."):
+            users_data = get_all_users_for_admin()
+        if users_data:
+            excel_users = to_excel(users_data)
+            st.download_button(
+                label="📥 Unduh Data Pengguna",
+                data=excel_users,
+                file_name=f"data_pengguna_arra_{time.strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        else:
+            st.info("Belum ada data pengguna untuk diunduh.")
+
+    elif sub_menu == "👥 Kelola User":
         st.write("Cari, lihat, dan hapus pengguna dari sistem.")
         search_user = st.text_input("🔍 Cari username pengguna...")
         all_users = get_all_users_for_admin()
         if search_user: all_users = [user for user in all_users if search_user.lower() in user['username'].lower()]
-        if not all_users: st.info("Tidak ada pengguna yang cocok dengan pencarian Anda.")
+        if not all_users:
+            st.info("Tidak ada pengguna yang cocok dengan pencarian Anda.")
         else:
             for user in all_users:
                 with st.container(border=True):
                     if st.session_state.confirming_delete_user == user['id']:
-                        st.warning(f"**Anda yakin ingin menghapus pengguna `{user['username']}` secara permanen?** Tindakan ini tidak dapat dibatalkan.")
+                        st.warning(f"**Anda yakin ingin menghapus pengguna `{user['username']}` secara permanen?**")
                         col1, col2 = st.columns(2)
                         with col1:
-                            if st.button("YA, HAPUS SEKARANG", key=f"confirm_del_{user['id']}", type="primary", use_container_width=True):
-                                with st.status(f"Menghapus user {user['username']}...", expanded=True) as status:
+                            if st.button("YA, HAPUS", key=f"confirm_del_{user['id']}", type="primary", use_container_width=True):
+                                with st.status(f"Menghapus user {user['username']}..."):
                                     delete_user_by_id(user['id'])
-                                    status.update(label=f"User {user['username']} berhasil dihapus.", state="complete", expanded=False)
-                                st.session_state.confirming_delete_user = None; time.sleep(1); st.rerun()
+                                st.session_state.confirming_delete_user = None; st.rerun()
                         with col2:
                              if st.button("Batal", key=f"cancel_del_{user['id']}", use_container_width=True):
                                 st.session_state.confirming_delete_user = None; st.rerun()
@@ -372,7 +414,7 @@ def admin_page():
                                 with col2:
                                     if st.button("Ubah", key=f"edit_prod_{p['id']}", use_container_width=True): st.session_state.editing_product_id = p['id']; st.rerun()
                                     if st.button("Hapus", key=f"del_prod_{p['id']}", use_container_width=True, type="primary"): delete_product(p['id']); st.rerun()
-
+                                    
     elif sub_menu == "🧾 Daftar Transaksi":
         with st.expander("🔍 Filter & Cari Transaksi"):
             status_options = ["Semua Status", "Menunggu", "Diproses", "Selesai", "Gagal"]
