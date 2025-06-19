@@ -51,12 +51,10 @@ def upload_payment_proof(transaction_id, uploaded_file):
         time.sleep(1)
         st.rerun()
 
-@st.cache_data(ttl=300) # Cache data Excel selama 5 menit
+@st.cache_data(ttl=300)
 def to_excel(data: list) -> bytes:
     df = pd.DataFrame(data)
-    # Membersihkan kolom yang bisa menjadi masalah saat konversi (seperti kolom dict)
     for col in df.columns:
-        # Pengecekan sederhana jika ada list atau dict di dalam sel pertama
         if data and df[col].iloc[0] and isinstance(df[col].iloc[0], (dict, list)):
             df[col] = df[col].astype(str)
     output = BytesIO()
@@ -112,8 +110,13 @@ def get_user_transactions(username):
     return supabase.table("transactions").select("*").eq("username", username).order("waktu", desc=True).execute().data
 def get_all_transactions():
     return supabase.table("transactions").select("*").order("waktu", desc=True).execute().data
-def update_transaction_status(trans_id, status):
-    supabase.table("transactions").update({"status": status}).eq("id", trans_id).execute()
+def update_transaction_status(trans_id, status, reason=None):
+    update_data = {"status": status}
+    if status == 'Gagal':
+        update_data['failure_reason'] = reason
+    else:
+        update_data['failure_reason'] = None
+    supabase.table("transactions").update(update_data).eq("id", trans_id).execute()
 
 # --- Fungsi CRUD untuk Ulasan ---
 def add_review(game_id, username, rating, comment):
@@ -215,7 +218,6 @@ def admin_page():
     
     if sub_menu == "📊 Laporan & Unduh Data":
         st.write("Pilih dan unduh data dari database Anda dalam format Excel (.xlsx).")
-        
         with st.container(border=True):
             st.subheader("Laporan Transaksi")
             st.write("Berisi semua data transaksi yang pernah tercatat di sistem.")
@@ -226,12 +228,9 @@ def admin_page():
                 st.download_button(label="📥 Unduh Data Transaksi", data=excel_trans,
                     file_name=f"laporan_transaksi_arra_{time.strftime('%Y%m%d')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-            else:
-                st.info("Belum ada data transaksi untuk diunduh.")
-
+            else: st.info("Belum ada data transaksi untuk diunduh.")
         with st.container(border=True):
             st.subheader("Data Produk (Termasuk Info Game)")
-            st.write("Berisi semua produk yang Anda jual, lengkap dengan nama game-nya.")
             with st.spinner("Menyiapkan data produk..."):
                 products_data = get_products_with_game_info()
             if products_data:
@@ -239,12 +238,9 @@ def admin_page():
                 st.download_button(label="📥 Unduh Data Produk", data=excel_prod,
                     file_name=f"data_produk_arra_{time.strftime('%Y%m%d')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-            else:
-                st.info("Belum ada data produk untuk diunduh.")
-
+            else: st.info("Belum ada data produk untuk diunduh.")
         with st.container(border=True):
             st.subheader("Data Pengguna")
-            st.write("Berisi semua data pengguna yang terdaftar (kecuali admin).")
             with st.spinner("Menyiapkan data pengguna..."):
                 users_data = get_all_users_for_admin()
             if users_data:
@@ -252,8 +248,7 @@ def admin_page():
                 st.download_button(label="📥 Unduh Data Pengguna", data=excel_users,
                     file_name=f"data_pengguna_arra_{time.strftime('%Y%m%d')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-            else:
-                st.info("Belum ada data pengguna untuk diunduh.")
+            else: st.info("Belum ada data pengguna untuk diunduh.")
 
     elif sub_menu == "👥 Kelola User":
         st.write("Cari, lihat, dan hapus pengguna dari sistem.")
@@ -313,7 +308,7 @@ def admin_page():
                         send_message(sender="admin", recipient=chat_user, content=reply_content); st.rerun()
             else:
                 st.write("Pilih percakapan untuk ditampilkan.")
-
+    
     elif sub_menu == "📝 Kelola Ulasan":
         games = get_games(); game_options = {game['id']: game['name'] for game in games}; game_options[0] = "Semua Game"
         selected_game_id = st.selectbox("Filter ulasan berdasarkan game:", options=list(game_options.keys()), format_func=lambda x: game_options[x])
@@ -424,7 +419,7 @@ def admin_page():
                                 with col2:
                                     if st.button("Ubah", key=f"edit_prod_{p['id']}", use_container_width=True): st.session_state.editing_product_id = p['id']; st.rerun()
                                     if st.button("Hapus", key=f"del_prod_{p['id']}", use_container_width=True, type="primary"): delete_product(p['id']); st.rerun()
-
+                                    
     elif sub_menu == "🧾 Daftar Transaksi":
         with st.expander("🔍 Filter & Cari Transaksi"):
             status_options = ["Semua Status", "Menunggu", "Diproses", "Selesai", "Gagal"]
@@ -449,17 +444,27 @@ def admin_page():
                         st.markdown(f"**Paket:** {t['paket']} (Rp {t['harga']:,})"); st.markdown(f"**Metode Bayar:** {metode}")
                     st.divider()
                     st.markdown("**Update Status Pesanan:**")
-                    form_col1, form_col2 = st.columns(2)
-                    with form_col1:
-                        current_index = status_options.index(t['status']) if t['status'] in status_options else 1
-                        new_status = st.selectbox("Ubah Status ke:", options=status_options[1:], index=current_index-1 if current_index > 0 else 0, key=f"status_{t['id']}")
-                    with form_col2:
-                        st.write(""); st.write("")
-                        if st.button("Simpan Perubahan", key=f"up_{t['id']}", use_container_width=True, type="primary"):
-                            update_transaction_status(t['id'], new_status)
-                            st.toast(f"Status transaksi ID {t['id']} diubah ke {new_status}!", icon="✅")
-                            time.sleep(1)
-                            st.rerun()
+                    
+                    with st.form(key=f"update_status_form_{t['id']}"):
+                        status_options_form = ["Diproses", "Selesai", "Gagal"]
+                        try:
+                            current_index_form = status_options_form.index(t['status'])
+                        except ValueError:
+                            current_index_form = 0
+                        new_status = st.selectbox("Ubah Status ke:", options=status_options_form, index=current_index_form, key=f"status_{t['id']}")
+                        
+                        reason_input = ""
+                        if new_status == 'Gagal':
+                            reason_input = st.text_area("Alasan Kegagalan (Wajib diisi jika status Gagal):", key=f"reason_{t['id']}", value=t.get('failure_reason', ''))
+
+                        if st.form_submit_button("Simpan Perubahan", use_container_width=True, type="primary"):
+                            if new_status == 'Gagal' and not reason_input.strip():
+                                st.warning("Harap isi alasan mengapa transaksi ini digagalkan.")
+                            else:
+                                update_transaction_status(t['id'], new_status, reason_input)
+                                st.toast(f"Status transaksi ID {t['id']} diubah ke {new_status}!", icon="✅")
+                                time.sleep(1)
+                                st.rerun()
 
 # --- UI: HALAMAN USER ---
 def user_page():
@@ -665,6 +670,10 @@ def user_page():
                     st.write(f"**Game:** {t['game']} | **Harga:** Rp {t['harga']:,}")
                     status_color = {"Selesai": "green", "Diproses": "orange", "Gagal": "red", "Menunggu":"blue"}.get(t['status'], "gray")
                     st.write(f"Status: **<span style='color:{status_color};'>{t['status']}</span>**", unsafe_allow_html=True)
+                    
+                    if t['status'] == 'Gagal' and t.get('failure_reason'):
+                        st.error(f"**Alasan Kegagalan:** {t['failure_reason']}", icon="❗")
+
                     if t['status'] == 'Menunggu' and not t.get('payment_proof_url'):
                         with st.expander("Unggah Bukti Pembayaran"):
                             uploaded_proof = st.file_uploader("Pilih file bukti...", type=["png", "jpg", "jpeg"], key=f"proof_history_{t['id']}")
