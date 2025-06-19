@@ -54,9 +54,10 @@ def upload_payment_proof(transaction_id, uploaded_file):
 @st.cache_data(ttl=300) # Cache data Excel selama 5 menit
 def to_excel(data: list) -> bytes:
     df = pd.DataFrame(data)
-    # Membersihkan kolom yang bisa menjadi masalah saat konversi
+    # Membersihkan kolom yang bisa menjadi masalah saat konversi (seperti kolom dict)
     for col in df.columns:
-        if isinstance(df[col].iloc[0], list) or isinstance(df[col].iloc[0], dict):
+        # Pengecekan sederhana jika ada list atau dict di dalam sel pertama
+        if data and df[col].iloc[0] and isinstance(df[col].iloc[0], (dict, list)):
             df[col] = df[col].astype(str)
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -202,7 +203,6 @@ def login_register_menu():
 def admin_page():
     st.sidebar.title("✨ ARRA")
     st.sidebar.header("👑 ADMIN PANEL")
-    # PERUBAHAN: Menambah Ikon dan halaman Kelola User
     sub_menu = st.sidebar.radio("Menu", ["📊 Laporan & Unduh Data", "🧾 Daftar Transaksi", "🛍️ Kelola Produk", "🎮 Kelola Game", "📝 Kelola Ulasan", "💬 Kotak Pesan", "👥 Kelola User"])
     if st.sidebar.button("Logout", use_container_width=True): clear_session(); st.rerun()
     st.header(f"{sub_menu}")
@@ -212,32 +212,48 @@ def admin_page():
     if 'editing_product_id' not in st.session_state: st.session_state.editing_product_id = None
     if 'selected_chat_user' not in st.session_state: st.session_state.selected_chat_user = None
     if 'confirming_delete_user' not in st.session_state: st.session_state.confirming_delete_user = None
-
+    
     if sub_menu == "📊 Laporan & Unduh Data":
-        st.write("Pilih dan unduh data dari database Anda dalam format Excel.")
-        st.subheader("Laporan Transaksi")
-        st.write("Berisi semua data transaksi yang pernah tercatat di sistem.")
-        with st.spinner("Menyiapkan data transaksi..."):
-            transactions_data = get_all_transactions()
-        if transactions_data:
-            excel_trans = to_excel(transactions_data)
-            st.download_button(label="📥 Unduh Laporan Transaksi", data=excel_trans,
-                file_name=f"laporan_transaksi_arra_{time.strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        else:
-            st.info("Belum ada data transaksi untuk diunduh.")
-        st.divider()
-        st.subheader("Data Pengguna")
-        st.write("Berisi semua data pengguna yang terdaftar (kecuali admin).")
-        with st.spinner("Menyiapkan data pengguna..."):
-            users_data = get_all_users_for_admin()
-        if users_data:
-            excel_users = to_excel(users_data)
-            st.download_button(label="📥 Unduh Data Pengguna", data=excel_users,
-                file_name=f"data_pengguna_arra_{time.strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        else:
-            st.info("Belum ada data pengguna untuk diunduh.")
+        st.write("Pilih dan unduh data dari database Anda dalam format Excel (.xlsx).")
+        
+        with st.container(border=True):
+            st.subheader("Laporan Transaksi")
+            st.write("Berisi semua data transaksi yang pernah tercatat di sistem.")
+            with st.spinner("Menyiapkan data transaksi..."):
+                transactions_data = get_all_transactions()
+            if transactions_data:
+                excel_trans = to_excel(transactions_data)
+                st.download_button(label="📥 Unduh Data Transaksi", data=excel_trans,
+                    file_name=f"laporan_transaksi_arra_{time.strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+            else:
+                st.info("Belum ada data transaksi untuk diunduh.")
+
+        with st.container(border=True):
+            st.subheader("Data Produk (Termasuk Info Game)")
+            st.write("Berisi semua produk yang Anda jual, lengkap dengan nama game-nya.")
+            with st.spinner("Menyiapkan data produk..."):
+                products_data = get_products_with_game_info()
+            if products_data:
+                excel_prod = to_excel(products_data)
+                st.download_button(label="📥 Unduh Data Produk", data=excel_prod,
+                    file_name=f"data_produk_arra_{time.strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+            else:
+                st.info("Belum ada data produk untuk diunduh.")
+
+        with st.container(border=True):
+            st.subheader("Data Pengguna")
+            st.write("Berisi semua data pengguna yang terdaftar (kecuali admin).")
+            with st.spinner("Menyiapkan data pengguna..."):
+                users_data = get_all_users_for_admin()
+            if users_data:
+                excel_users = to_excel(users_data)
+                st.download_button(label="📥 Unduh Data Pengguna", data=excel_users,
+                    file_name=f"data_pengguna_arra_{time.strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+            else:
+                st.info("Belum ada data pengguna untuk diunduh.")
 
     elif sub_menu == "👥 Kelola User":
         st.write("Cari, lihat, dan hapus pengguna dari sistem.")
@@ -408,7 +424,7 @@ def admin_page():
                                 with col2:
                                     if st.button("Ubah", key=f"edit_prod_{p['id']}", use_container_width=True): st.session_state.editing_product_id = p['id']; st.rerun()
                                     if st.button("Hapus", key=f"del_prod_{p['id']}", use_container_width=True, type="primary"): delete_product(p['id']); st.rerun()
-                                    
+
     elif sub_menu == "🧾 Daftar Transaksi":
         with st.expander("🔍 Filter & Cari Transaksi"):
             status_options = ["Semua Status", "Menunggu", "Diproses", "Selesai", "Gagal"]
