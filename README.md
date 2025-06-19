@@ -1,7 +1,5 @@
 # ✨ ARRA - Aplikasi Top Up Game Berbasis Streamlit & Supabase
 
-[![Streamlit App](https://app-topup-jambuu.streamlit.app/)
-
 Selamat datang di ARRA, sebuah aplikasi web top-up game dinamis yang dibangun sepenuhnya menggunakan Python dengan framework Streamlit dan didukung oleh backend Supabase. Aplikasi ini dirancang sebagai platform jual-beli item game yang fungsional, mencakup manajemen user, produk, transaksi, hingga fitur interaktif seperti ulasan dan kotak pesan.
 
 Proyek ini adalah demonstrasi membangun aplikasi web yang *stateful* (menyimpan data) dan interaktif dengan arsitektur modern yang mudah dikembangkan.
