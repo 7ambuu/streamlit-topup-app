@@ -74,9 +74,15 @@ def delete_game(game_id):
     return supabase.table("games").delete().eq("id", game_id).execute()
 
 # --- Fungsi CRUD untuk User ---
-def register_user(username, password):
+def register_user(username, password, full_name, email):
     try:
-        supabase.table("users").insert({"username": username, "password_hash": hash_password(password), "role": "user"}).execute()
+        supabase.table("users").insert({
+            "username": username, 
+            "password_hash": hash_password(password), 
+            "role": "user",
+            "full_name": full_name,
+            "email": email
+        }).execute()
         return True
     except Exception: return False
 def login_user(username, password):
@@ -87,10 +93,10 @@ def get_user_data(username):
     return response.data
 def update_user_password(username, new_password):
     supabase.table("users").update({"password_hash": hash_password(new_password)}).eq("username", username).execute()
-def update_user_email(username, email):
-    return supabase.table("users").update({"email": email}).eq("username", username).execute()
+def update_user_profile(username, email, full_name):
+    return supabase.table("users").update({"email": email, "full_name": full_name}).eq("username", username).execute()
 def get_all_users_for_admin():
-    return supabase.table("users").select("id, username, role, email, created_at").neq("role", "admin").order("created_at", desc=True).execute().data
+    return supabase.table("users").select("*").neq("role", "admin").order("created_at", desc=True).execute().data
 def delete_user_by_id(user_id):
     return supabase.table("users").delete().eq("id", user_id).execute()
 
@@ -174,10 +180,6 @@ def login_register_menu():
     **ARRA** hadir sebagai platform top up game terpercaya, 
     didirikan oleh **Azzam Risky Refando Arif** untuk memenuhi kebutuhan para gamer di Indonesia. 
     Kami berkomitmen untuk menyediakan layanan top up yang **cepat, aman, dan terjangkau** untuk berbagai game favorit Anda.
-
-    Nikmati pengalaman top up tanpa ribet, dengan pilihan pembayaran yang beragam 
-    dan dukungan pelanggan yang siap membantu. Bergabunglah dengan ribuan gamer lainnya 
-    yang telah mempercayakan kebutuhan top up mereka kepada ARRA!
     """)
     st.divider()
     login_tab, register_tab = st.tabs(["🔑 Login", "✍️ Register"])
@@ -198,19 +200,21 @@ def login_register_menu():
     with register_tab:
         with st.form("register_form"):
             st.markdown("##### Belum punya akun? Daftar di sini!")
+            reg_full_name = st.text_input("Nama Lengkap Anda", key="reg_fullname")
+            reg_email = st.text_input("Alamat Email", key="reg_email", placeholder="anda@email.com")
             reg_username = st.text_input("Username Baru", key="reg_username")
             reg_password = st.text_input("Password Baru", type="password", key="reg_password")
             if st.form_submit_button("Daftar Sekarang", use_container_width=True):
-                if not reg_username or not reg_password:
-                    st.error("Username dan password tidak boleh kosong.")
+                if not all([reg_full_name, reg_email, reg_username, reg_password]):
+                    st.error("Semua kolom wajib diisi.")
                 else:
                     with st.spinner("Membuat akun baru..."):
-                        success = register_user(reg_username, reg_password)
+                        success = register_user(reg_username, reg_password, reg_full_name, reg_email)
                     if success:
                         st.success("Registrasi berhasil! Silakan pindah ke tab Login untuk masuk.")
                         time.sleep(2)
                     else:
-                        st.error("Username tersebut mungkin sudah digunakan.")
+                        st.error("Username atau Email tersebut mungkin sudah digunakan.")
 
 # --- UI: HALAMAN ADMIN ---
 def admin_page():
@@ -230,6 +234,7 @@ def admin_page():
         st.write("Pilih dan unduh data dari database Anda dalam format Excel (.xlsx).")
         with st.container(border=True):
             st.subheader("Data Pengguna")
+            st.write("Berisi semua data pengguna yang terdaftar (termasuk email).")
             with st.spinner("Menyiapkan data pengguna..."):
                 users_data = get_all_users_for_admin()
             if users_data:
@@ -261,7 +266,8 @@ def admin_page():
         search_user = st.text_input("🔍 Cari username pengguna...")
         all_users = get_all_users_for_admin()
         if search_user: all_users = [user for user in all_users if search_user.lower() in user['username'].lower()]
-        if not all_users: st.info("Tidak ada pengguna yang cocok dengan pencarian Anda.")
+        if not all_users:
+            st.info("Tidak ada pengguna yang cocok dengan pencarian Anda.")
         else:
             for user in all_users:
                 with st.container(border=True):
@@ -277,8 +283,8 @@ def admin_page():
                     else:
                         col1, col2, col3, col4 = st.columns([2, 2, 2, 1.5])
                         with col1: st.markdown(f"**Username:** `{user['username']}`")
-                        with col2: st.markdown(f"**Email:** `{user.get('email') or 'Belum diisi'}`")
-                        with col3: st.caption(f"Daftar: {user.get('created_at', 'N/A')}")
+                        with col2: st.markdown(f"**Nama:** {user.get('full_name') or 'N/A'}")
+                        with col3: st.markdown(f"**Email:** `{user.get('email') or 'N/A'}`")
                         with col4:
                             if st.button("Hapus User", key=f"del_user_{user['id']}", use_container_width=True):
                                 st.session_state.confirming_delete_user = user['id']; st.rerun()
@@ -315,7 +321,7 @@ def admin_page():
                         send_message(sender="admin", recipient=chat_user, content=reply_content); st.rerun()
             else:
                 st.write("Pilih percakapan untuk ditampilkan.")
-
+    
     elif sub_menu == "📝 Kelola Ulasan":
         games = get_games(); game_options = {game['id']: game['name'] for game in games}; game_options[0] = "Semua Game"
         selected_game_id = st.selectbox("Filter ulasan berdasarkan game:", options=list(game_options.keys()), format_func=lambda x: game_options[x])
@@ -461,19 +467,8 @@ def admin_page():
                             if new_status == 'Gagal' and not reason_input.strip():
                                 st.warning("Harap isi alasan mengapa transaksi ini digagalkan.")
                             else:
-                                if new_status == 'Selesai' and t['status'] != 'Selesai':
-                                    with st.spinner("Mengupdate status dan mengirim email..."):
-                                        user_data = get_user_data(t['username'])
-                                        if user_data and user_data.get('email'):
-                                            send_receipt_email(user_data['email'], t['username'], t)
-                                            update_transaction_status(t['id'], new_status, reason_input)
-                                            st.toast(f"Status diubah & struk dikirim ke {user_data['email']}!", icon="📧")
-                                        else:
-                                            update_transaction_status(t['id'], new_status, reason_input)
-                                            st.toast(f"Status diubah, tapi email tidak terkirim (user belum mendaftarkan email).", icon="⚠️")
-                                else:
-                                    update_transaction_status(t['id'], new_status, reason_input)
-                                    st.toast(f"Status transaksi ID {t['id']} diubah ke {new_status}!", icon="✅")
+                                update_transaction_status(t['id'], new_status, reason_input)
+                                st.toast(f"Status transaksi ID {t['id']} diubah ke {new_status}!", icon="✅")
                                 time.sleep(1); st.rerun()
 
 # --- UI: HALAMAN USER ---
@@ -504,6 +499,7 @@ def user_page():
         conversation = get_conversation(username, "admin")
         if not conversation:
             st.info("Belum ada percakapan. Mulai percakapan pertama Anda dengan Admin di bawah ini!")
+        
         with st.container(height=500, border=True):
             for msg in conversation:
                 role = "user" if msg['sender'] == username else "assistant"
@@ -512,6 +508,7 @@ def user_page():
                     st.write(msg['content'])
                     dt_object = datetime.fromisoformat(msg['created_at'])
                     st.caption(f"{dt_object.strftime('%d %b %Y, %H:%M')}")
+        
         with st.form("message_form", clear_on_submit=True):
             user_message = st.text_area("Ketik pesan Anda untuk Admin:", height=100, label_visibility="collapsed", placeholder="Ketik pesan Anda...")
             if st.form_submit_button("Kirim Pesan", use_container_width=True, type="primary"):
@@ -522,9 +519,11 @@ def user_page():
         st.header(f"Profil Saya")
         user_data = get_user_data(st.session_state['user'])
         
+        full_name = user_data.get('full_name') if user_data else st.session_state['user']
         email = user_data.get('email') if user_data else None
-        st.write(f"Selamat datang kembali, **{st.session_state['user']}**!")
-        st.caption(f"Email terdaftar: **{email or 'Belum diatur'}**")
+        
+        st.write(f"Selamat datang kembali, **{full_name}**!")
+        st.caption(f"Username: `{st.session_state['user']}` | Email terdaftar: **{email or 'Belum diatur'}**")
         st.divider()
         st.subheader("Ringkasan Aktivitas Anda")
         transactions = get_user_transactions(st.session_state['user'])
@@ -541,16 +540,16 @@ def user_page():
         with col3: st.metric("Game Favorit", fav_game)
         st.divider()
         st.subheader("Pengaturan Akun")
-        
-        with st.form("update_email_form"):
-            st.markdown("**Perbarui Alamat Email**")
-            current_email = user_data.get('email', '') if user_data else ""
-            new_email = st.text_input("Email Anda", value=current_email, placeholder="contoh@email.com", label_visibility="collapsed")
-            if st.form_submit_button("Simpan Email", use_container_width=True, type="primary"):
-                with st.spinner("Memperbarui email..."):
-                    update_user_email(st.session_state['user'], new_email)
-                st.success("Alamat email berhasil diperbarui!"); time.sleep(1); st.rerun()
-        
+
+        with st.form("update_profile_form"):
+            st.markdown("**Perbarui Data Diri & Email**")
+            new_full_name = st.text_input("Nama Lengkap", value=user_data.get('full_name', ''))
+            new_email = st.text_input("Alamat Email", value=user_data.get('email', ''), placeholder="contoh@email.com")
+            if st.form_submit_button("Simpan Data Diri", use_container_width=True, type="primary"):
+                with st.spinner("Memperbarui profil..."):
+                    update_user_profile(st.session_state['user'], new_email, new_full_name)
+                st.success("Profil berhasil diperbarui!"); time.sleep(1); st.rerun()
+
         with st.form("change_password_form", clear_on_submit=True):
             st.markdown("**Ubah Password**")
             new_pass = st.text_input("Password Baru", type="password")
