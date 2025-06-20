@@ -230,7 +230,8 @@ def admin_page():
         st.write("Pilih dan unduh data dari database Anda dalam format Excel (.xlsx).")
         with st.container(border=True):
             st.subheader("Laporan Transaksi")
-            with st.spinner("Menyiapkan data transaksi..."): transactions_data = get_all_transactions()
+            with st.spinner("Menyiapkan data transaksi..."):
+                transactions_data = get_all_transactions()
             if transactions_data:
                 st.download_button(label="📥 Unduh Data Transaksi", data=to_excel(transactions_data),
                     file_name=f"laporan_transaksi_arra_{time.strftime('%Y%m%d')}.xlsx",
@@ -238,7 +239,8 @@ def admin_page():
             else: st.info("Belum ada data transaksi untuk diunduh.")
         with st.container(border=True):
             st.subheader("Data Produk (Termasuk Info Game)")
-            with st.spinner("Menyiapkan data produk..."): products_data = get_products_with_game_info()
+            with st.spinner("Menyiapkan data produk..."):
+                products_data = get_products_with_game_info()
             if products_data:
                 st.download_button(label="📥 Unduh Data Produk", data=to_excel(products_data),
                     file_name=f"data_produk_arra_{time.strftime('%Y%m%d')}.xlsx",
@@ -246,7 +248,9 @@ def admin_page():
             else: st.info("Belum ada data produk untuk diunduh.")
         with st.container(border=True):
             st.subheader("Data Pengguna")
-            with st.spinner("Menyiapkan data pengguna..."): users_data = get_all_users_for_admin()
+            st.write("Berisi semua data pengguna yang terdaftar (termasuk email).")
+            with st.spinner("Menyiapkan data pengguna..."):
+                users_data = get_all_users_for_admin()
             if users_data:
                 st.download_button(label="📥 Unduh Data Pengguna", data=to_excel(users_data),
                     file_name=f"data_pengguna_arra_{time.strftime('%Y%m%d')}.xlsx",
@@ -279,7 +283,7 @@ def admin_page():
                         with col4:
                             if st.button("Hapus User", key=f"del_user_{user['id']}", use_container_width=True):
                                 st.session_state.confirming_delete_user = user['id']; st.rerun()
-
+                                
     elif sub_menu == "💬 Kotak Pesan":
         conversations, ordered_users = get_conversations_for_admin()
         if not conversations: st.info("Belum ada pesan yang masuk dari pengguna."); return
@@ -508,7 +512,11 @@ def user_page():
 
     elif page == "👤 Profil Saya":
         st.header(f"Profil Saya")
+        user_data = get_user_data(st.session_state['user'])
+        
+        email = user_data.get('email') if user_data else None
         st.write(f"Selamat datang kembali, **{st.session_state['user']}**!")
+        st.caption(f"Email terdaftar: **{email or 'Belum diatur'}**")
         st.divider()
         st.subheader("Ringkasan Aktivitas Anda")
         transactions = get_user_transactions(st.session_state['user'])
@@ -525,9 +533,9 @@ def user_page():
         with col3: st.metric("Game Favorit", fav_game)
         st.divider()
         st.subheader("Pengaturan Akun")
-        user_data = get_user_data(st.session_state['user'])
+        
         with st.form("update_email_form"):
-            st.markdown("**Alamat Email**")
+            st.markdown("**Perbarui Alamat Email**")
             st.caption("Digunakan untuk potensi fitur pengiriman struk di masa depan.")
             current_email = user_data.get('email', '') if user_data else ""
             new_email = st.text_input("Email Anda", value=current_email, placeholder="contoh@email.com", label_visibility="collapsed")
@@ -535,6 +543,7 @@ def user_page():
                 with st.spinner("Memperbarui email..."):
                     update_user_email(st.session_state['user'], new_email)
                 st.success("Alamat email berhasil diperbarui!"); time.sleep(1); st.rerun()
+
         with st.form("change_password_form", clear_on_submit=True):
             st.markdown("**Ubah Password**")
             new_pass = st.text_input("Password Baru", type="password")
