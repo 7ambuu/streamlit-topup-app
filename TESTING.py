@@ -55,7 +55,7 @@ def upload_payment_proof(transaction_id, uploaded_file):
 def to_excel(data: list) -> bytes:
     df = pd.DataFrame(data)
     for col in df.columns:
-        if data and df[col].iloc[0] and isinstance(df[col].iloc[0], (dict, list)):
+        if data and not df[col].empty and isinstance(df[col].iloc[0], (dict, list)):
             df[col] = df[col].astype(str)
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -229,6 +229,15 @@ def admin_page():
     if sub_menu == "📊 Laporan & Unduh Data":
         st.write("Pilih dan unduh data dari database Anda dalam format Excel (.xlsx).")
         with st.container(border=True):
+            st.subheader("Data Pengguna")
+            with st.spinner("Menyiapkan data pengguna..."):
+                users_data = get_all_users_for_admin()
+            if users_data:
+                st.download_button(label="📥 Unduh Data Pengguna", data=to_excel(users_data),
+                    file_name=f"data_pengguna_arra_{time.strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+            else: st.info("Belum ada data pengguna untuk diunduh.")
+        with st.container(border=True):
             st.subheader("Laporan Transaksi")
             with st.spinner("Menyiapkan data transaksi..."):
                 transactions_data = get_all_transactions()
@@ -246,16 +255,6 @@ def admin_page():
                     file_name=f"data_produk_arra_{time.strftime('%Y%m%d')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
             else: st.info("Belum ada data produk untuk diunduh.")
-        with st.container(border=True):
-            st.subheader("Data Pengguna")
-            st.write("Berisi semua data pengguna yang terdaftar (termasuk email).")
-            with st.spinner("Menyiapkan data pengguna..."):
-                users_data = get_all_users_for_admin()
-            if users_data:
-                st.download_button(label="📥 Unduh Data Pengguna", data=to_excel(users_data),
-                    file_name=f"data_pengguna_arra_{time.strftime('%Y%m%d')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-            else: st.info("Belum ada data pengguna untuk diunduh.")
 
     elif sub_menu == "👥 Kelola User":
         st.write("Cari, lihat, dan hapus pengguna dari sistem.")
@@ -316,7 +315,7 @@ def admin_page():
                         send_message(sender="admin", recipient=chat_user, content=reply_content); st.rerun()
             else:
                 st.write("Pilih percakapan untuk ditampilkan.")
-    
+
     elif sub_menu == "📝 Kelola Ulasan":
         games = get_games(); game_options = {game['id']: game['name'] for game in games}; game_options[0] = "Semua Game"
         selected_game_id = st.selectbox("Filter ulasan berdasarkan game:", options=list(game_options.keys()), format_func=lambda x: game_options[x])
@@ -325,7 +324,7 @@ def admin_page():
         filtered_reviews = [r for r in all_reviews if selected_game_id == 0 or r.get('game_id') == selected_game_id]
         if not filtered_reviews: st.info("Tidak ada ulasan yang cocok dengan filter ini.")
         else:
-            for review in filtered_reviews:
+            for review in all_reviews:
                 game_name = review['games']['name'] if review.get('games') else "N/A"
                 with st.container(border=True):
                     col1, col2 = st.columns([4, 1]);
@@ -457,13 +456,24 @@ def admin_page():
                         try: current_index_form = status_options_form.index(t['status'])
                         except ValueError: current_index_form = 0
                         new_status = st.selectbox("Ubah Status ke:", options=status_options_form, index=current_index_form, key=f"status_{t['id']}")
-                        reason_input = st.text_area("Alasan Kegagalan (hanya diisi jika status Gagal):", key=f"reason_{t['id']}", value=t.get('failure_reason', '')) if new_status == 'Gagal' else ""
+                        reason_input = st.text_area("Alasan Kegagalan (Wajib diisi jika status Gagal):", key=f"reason_{t['id']}", value=t.get('failure_reason', '')) if new_status == 'Gagal' else ""
                         if st.form_submit_button("Simpan Perubahan", use_container_width=True, type="primary"):
                             if new_status == 'Gagal' and not reason_input.strip():
                                 st.warning("Harap isi alasan mengapa transaksi ini digagalkan.")
                             else:
-                                update_transaction_status(t['id'], new_status, reason_input)
-                                st.toast(f"Status transaksi ID {t['id']} diubah ke {new_status}!", icon="✅")
+                                if new_status == 'Selesai' and t['status'] != 'Selesai':
+                                    with st.spinner("Mengupdate status dan mengirim email..."):
+                                        user_data = get_user_data(t['username'])
+                                        if user_data and user_data.get('email'):
+                                            send_receipt_email(user_data['email'], t['username'], t)
+                                            update_transaction_status(t['id'], new_status, reason_input)
+                                            st.toast(f"Status diubah & struk dikirim ke {user_data['email']}!", icon="📧")
+                                        else:
+                                            update_transaction_status(t['id'], new_status, reason_input)
+                                            st.toast(f"Status diubah, tapi email tidak terkirim (user belum mendaftarkan email).", icon="⚠️")
+                                else:
+                                    update_transaction_status(t['id'], new_status, reason_input)
+                                    st.toast(f"Status transaksi ID {t['id']} diubah ke {new_status}!", icon="✅")
                                 time.sleep(1); st.rerun()
 
 # --- UI: HALAMAN USER ---
@@ -494,7 +504,6 @@ def user_page():
         conversation = get_conversation(username, "admin")
         if not conversation:
             st.info("Belum ada percakapan. Mulai percakapan pertama Anda dengan Admin di bawah ini!")
-        
         with st.container(height=500, border=True):
             for msg in conversation:
                 role = "user" if msg['sender'] == username else "assistant"
@@ -503,7 +512,6 @@ def user_page():
                     st.write(msg['content'])
                     dt_object = datetime.fromisoformat(msg['created_at'])
                     st.caption(f"{dt_object.strftime('%d %b %Y, %H:%M')}")
-        
         with st.form("message_form", clear_on_submit=True):
             user_message = st.text_area("Ketik pesan Anda untuk Admin:", height=100, label_visibility="collapsed", placeholder="Ketik pesan Anda...")
             if st.form_submit_button("Kirim Pesan", use_container_width=True, type="primary"):
@@ -536,14 +544,13 @@ def user_page():
         
         with st.form("update_email_form"):
             st.markdown("**Perbarui Alamat Email**")
-            st.caption("Digunakan untuk potensi fitur pengiriman struk di masa depan.")
             current_email = user_data.get('email', '') if user_data else ""
             new_email = st.text_input("Email Anda", value=current_email, placeholder="contoh@email.com", label_visibility="collapsed")
             if st.form_submit_button("Simpan Email", use_container_width=True, type="primary"):
                 with st.spinner("Memperbarui email..."):
                     update_user_email(st.session_state['user'], new_email)
                 st.success("Alamat email berhasil diperbarui!"); time.sleep(1); st.rerun()
-
+        
         with st.form("change_password_form", clear_on_submit=True):
             st.markdown("**Ubah Password**")
             new_pass = st.text_input("Password Baru", type="password")
@@ -562,7 +569,7 @@ def user_page():
                 st.markdown(f"Silakan transfer sejumlah **Rp {pending_trans['harga']:,}** ke nomor **DANA/GOPAY** di bawah ini:")
                 st.code("089633436959", language="text")
                 st.markdown("#### 2. Unggah Bukti Pembayaran")
-                st.write("Setelah transfer berhasil, unggah screenshot bukti pembayaran di bawah ini. Status pesanan akan otomatis berubah menjadi 'Diproses'.")
+                st.write("Setelah transfer berhasil, unggah screenshot bukti pembayaran di bawah ini.")
                 uploaded_proof = st.file_uploader("Pilih file bukti pembayaran Anda...", type=["png", "jpg", "jpeg"], key=f"proof_direct_{pending_trans['id']}")
                 if uploaded_proof: upload_payment_proof(pending_trans['id'], uploaded_proof)
             st.divider()
