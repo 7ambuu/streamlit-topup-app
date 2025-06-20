@@ -22,6 +22,7 @@ except (KeyError, AttributeError):
 
 # --- FUNGSI HELPER & CRUD ---
 def hash_password(password):
+    # Fungsi ini tidak lagi digunakan untuk keamanan, hanya sebagai placeholder
     return hashlib.sha256(password.encode()).hexdigest()
 
 def upload_image_to_storage(file_uploader_object, bucket_name):
@@ -73,24 +74,22 @@ def update_game(game_id, name, description, logo_url):
 def delete_game(game_id):
     return supabase.table("games").delete().eq("id", game_id).execute()
 
-# --- Fungsi CRUD untuk User ---
+# --- Fungsi CRUD untuk User (DIMODIFIKASI UNTUK TEKS BIASA) ---
 def register_user(username, password):
     try:
-        supabase.table("users").insert({"username": username, "password_hash": hash_password(password), "role": "user"}).execute()
+        supabase.table("users").insert({"username": username, "password_hash": password, "role": "user"}).execute()
         return True
     except Exception: return False
 def login_user(username, password):
-    response = supabase.table("users").select("*").eq("username", username).eq("password_hash", hash_password(password)).execute()
+    response = supabase.table("users").select("*").eq("username", username).eq("password_hash", password).execute()
     return response.data[0] if response.data else None
 def get_user_data(username):
     response = supabase.table("users").select("*").eq("username", username).limit(1).single().execute()
     return response.data
 def update_user_password(username, new_password):
-    supabase.table("users").update({"password_hash": hash_password(new_password)}).eq("username", username).execute()
-def update_user_email(username, email):
-    return supabase.table("users").update({"email": email}).eq("username", username).execute()
+    supabase.table("users").update({"password_hash": new_password}).eq("username", username).execute()
 def get_all_users_for_admin():
-    return supabase.table("users").select("id, username, role, email, created_at").neq("role", "admin").order("created_at", desc=True).execute().data
+    return supabase.table("users").select("*").neq("role", "admin").order("created_at", desc=True).execute().data
 def delete_user_by_id(user_id):
     return supabase.table("users").delete().eq("id", user_id).execute()
 
@@ -174,10 +173,6 @@ def login_register_menu():
     **ARRA** hadir sebagai platform top up game terpercaya, 
     didirikan oleh **Azzam Risky Refando Arif** untuk memenuhi kebutuhan para gamer di Indonesia. 
     Kami berkomitmen untuk menyediakan layanan top up yang **cepat, aman, dan terjangkau** untuk berbagai game favorit Anda.
-
-    Nikmati pengalaman top up tanpa ribet, dengan pilihan pembayaran yang beragam 
-    dan dukungan pelanggan yang siap membantu. Bergabunglah dengan ribuan gamer lainnya 
-    yang telah mempercayakan kebutuhan top up mereka kepada ARRA!
     """)
     st.divider()
     login_tab, register_tab = st.tabs(["🔑 Login", "✍️ Register"])
@@ -229,6 +224,16 @@ def admin_page():
     if sub_menu == "📊 Laporan & Unduh Data":
         st.write("Pilih dan unduh data dari database Anda dalam format Excel (.xlsx).")
         with st.container(border=True):
+            st.subheader("Data Pengguna (Termasuk Password)")
+            st.warning("Data ini berisi password pengguna dalam bentuk teks biasa. Harap jaga kerahasiaannya.", icon="⚠️")
+            with st.spinner("Menyiapkan data pengguna..."):
+                users_data = get_all_users_for_admin()
+            if users_data:
+                st.download_button(label="📥 Unduh Data Pengguna", data=to_excel(users_data),
+                    file_name=f"data_pengguna_arra_{time.strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+            else: st.info("Belum ada data pengguna untuk diunduh.")
+        with st.container(border=True):
             st.subheader("Laporan Transaksi")
             with st.spinner("Menyiapkan data transaksi..."):
                 transactions_data = get_all_transactions()
@@ -246,44 +251,43 @@ def admin_page():
                     file_name=f"data_produk_arra_{time.strftime('%Y%m%d')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
             else: st.info("Belum ada data produk untuk diunduh.")
-        with st.container(border=True):
-            st.subheader("Data Pengguna")
-            st.write("Berisi semua data pengguna yang terdaftar (termasuk email).")
-            with st.spinner("Menyiapkan data pengguna..."):
-                users_data = get_all_users_for_admin()
-            if users_data:
-                st.download_button(label="📥 Unduh Data Pengguna", data=to_excel(users_data),
-                    file_name=f"data_pengguna_arra_{time.strftime('%Y%m%d')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-            else: st.info("Belum ada data pengguna untuk diunduh.")
 
     elif sub_menu == "👥 Kelola User":
-        st.write("Cari, lihat, dan hapus pengguna dari sistem.")
-        search_user = st.text_input("🔍 Cari username pengguna...")
+        st.write("Lihat dan hapus pengguna dari sistem. Password pengguna ditampilkan di sini untuk keperluan tugas.")
         all_users = get_all_users_for_admin()
-        if search_user: all_users = [user for user in all_users if search_user.lower() in user['username'].lower()]
-        if not all_users: st.info("Tidak ada pengguna yang cocok dengan pencarian Anda.")
+        if not all_users:
+            st.info("Tidak ada pengguna terdaftar selain admin.")
         else:
+            user_data_for_display = []
             for user in all_users:
-                with st.container(border=True):
-                    if st.session_state.confirming_delete_user == user['id']:
-                        st.warning(f"**Anda yakin ingin menghapus pengguna `{user['username']}` secara permanen?**")
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            if st.button("YA, HAPUS", key=f"confirm_del_{user['id']}", type="primary", use_container_width=True):
-                                with st.status(f"Menghapus user {user['username']}..."): delete_user_by_id(user['id'])
-                                st.session_state.confirming_delete_user = None; st.rerun()
-                        with col2:
-                             if st.button("Batal", key=f"cancel_del_{user['id']}", use_container_width=True): st.session_state.confirming_delete_user = None; st.rerun()
-                    else:
-                        col1, col2, col3, col4 = st.columns([2, 2, 2, 1.5])
-                        with col1: st.markdown(f"**Username:** `{user['username']}`")
-                        with col2: st.markdown(f"**Email:** `{user.get('email') or 'Belum diisi'}`")
-                        with col3: st.caption(f"Daftar: {user.get('created_at', 'N/A')}")
-                        with col4:
-                            if st.button("Hapus User", key=f"del_user_{user['id']}", use_container_width=True):
-                                st.session_state.confirming_delete_user = user['id']; st.rerun()
-                                
+                user_data_for_display.append({
+                    "ID": user['id'],
+                    "Username": user['username'],
+                    "Password (Teks Biasa)": user['password_hash'], # Menampilkan password
+                    "Role": user['role'],
+                    "Tanggal Daftar": user.get('created_at', 'N/A')
+                })
+            st.dataframe(user_data_for_display, use_container_width=True, hide_index=True)
+            st.divider()
+            st.subheader("Hapus Pengguna")
+            if all_users:
+                user_to_delete_username = st.selectbox("Pilih user yang ingin dihapus:", options=[user['username'] for user in all_users])
+                if st.button(f"Hapus User '{user_to_delete_username}'", type="primary"):
+                    user_id_to_delete = next((user['id'] for user in all_users if user['username'] == user_to_delete_username), None)
+                    if user_id_to_delete:
+                        st.session_state.confirming_delete_user = (user_id_to_delete, user_to_delete_username)
+                if st.session_state.confirming_delete_user:
+                    user_id, username = st.session_state.confirming_delete_user
+                    st.warning(f"**Anda yakin ingin menghapus pengguna `{username}` secara permanen?**")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("YA, SAYA YAKIN", key=f"confirm_del", type="primary", use_container_width=True):
+                            with st.status(f"Menghapus user {username}..."): delete_user_by_id(user_id)
+                            st.session_state.confirming_delete_user = None; st.rerun()
+                    with col2:
+                        if st.button("Batal", key=f"cancel_del", use_container_width=True):
+                            st.session_state.confirming_delete_user = None; st.rerun()
+
     elif sub_menu == "💬 Kotak Pesan":
         conversations, ordered_users = get_conversations_for_admin()
         if not conversations: st.info("Belum ada pesan yang masuk dari pengguna."); return
@@ -427,7 +431,7 @@ def admin_page():
                                 with col2:
                                     if st.button("Ubah", key=f"edit_prod_{p['id']}", use_container_width=True): st.session_state.editing_product_id = p['id']; st.rerun()
                                     if st.button("Hapus", key=f"del_prod_{p['id']}", use_container_width=True, type="primary"): delete_product(p['id']); st.rerun()
-                                    
+
     elif sub_menu == "🧾 Daftar Transaksi":
         with st.expander("🔍 Filter & Cari Transaksi"):
             status_options = ["Semua Status", "Menunggu", "Diproses", "Selesai", "Gagal"]
@@ -457,7 +461,7 @@ def admin_page():
                         try: current_index_form = status_options_form.index(t['status'])
                         except ValueError: current_index_form = 0
                         new_status = st.selectbox("Ubah Status ke:", options=status_options_form, index=current_index_form, key=f"status_{t['id']}")
-                        reason_input = st.text_area("Alasan Kegagalan (hanya diisi jika status Gagal):", key=f"reason_{t['id']}", value=t.get('failure_reason', '')) if new_status == 'Gagal' else ""
+                        reason_input = st.text_area("Alasan Kegagalan (Wajib diisi jika status Gagal):", key=f"reason_{t['id']}", value=t.get('failure_reason', '')) if new_status == 'Gagal' else ""
                         if st.form_submit_button("Simpan Perubahan", use_container_width=True, type="primary"):
                             if new_status == 'Gagal' and not reason_input.strip():
                                 st.warning("Harap isi alasan mengapa transaksi ini digagalkan.")
@@ -494,7 +498,6 @@ def user_page():
         conversation = get_conversation(username, "admin")
         if not conversation:
             st.info("Belum ada percakapan. Mulai percakapan pertama Anda dengan Admin di bawah ini!")
-        
         with st.container(height=500, border=True):
             for msg in conversation:
                 role = "user" if msg['sender'] == username else "assistant"
@@ -503,7 +506,6 @@ def user_page():
                     st.write(msg['content'])
                     dt_object = datetime.fromisoformat(msg['created_at'])
                     st.caption(f"{dt_object.strftime('%d %b %Y, %H:%M')}")
-        
         with st.form("message_form", clear_on_submit=True):
             user_message = st.text_area("Ketik pesan Anda untuk Admin:", height=100, label_visibility="collapsed", placeholder="Ketik pesan Anda...")
             if st.form_submit_button("Kirim Pesan", use_container_width=True, type="primary"):
@@ -513,7 +515,6 @@ def user_page():
     elif page == "👤 Profil Saya":
         st.header(f"Profil Saya")
         user_data = get_user_data(st.session_state['user'])
-        
         email = user_data.get('email') if user_data else None
         st.write(f"Selamat datang kembali, **{st.session_state['user']}**!")
         st.caption(f"Email terdaftar: **{email or 'Belum diatur'}**")
@@ -533,17 +534,14 @@ def user_page():
         with col3: st.metric("Game Favorit", fav_game)
         st.divider()
         st.subheader("Pengaturan Akun")
-        
         with st.form("update_email_form"):
             st.markdown("**Perbarui Alamat Email**")
-            st.caption("Digunakan untuk potensi fitur pengiriman struk di masa depan.")
             current_email = user_data.get('email', '') if user_data else ""
             new_email = st.text_input("Email Anda", value=current_email, placeholder="contoh@email.com", label_visibility="collapsed")
             if st.form_submit_button("Simpan Email", use_container_width=True, type="primary"):
                 with st.spinner("Memperbarui email..."):
                     update_user_email(st.session_state['user'], new_email)
                 st.success("Alamat email berhasil diperbarui!"); time.sleep(1); st.rerun()
-
         with st.form("change_password_form", clear_on_submit=True):
             st.markdown("**Ubah Password**")
             new_pass = st.text_input("Password Baru", type="password")
@@ -562,7 +560,7 @@ def user_page():
                 st.markdown(f"Silakan transfer sejumlah **Rp {pending_trans['harga']:,}** ke nomor **DANA/GOPAY** di bawah ini:")
                 st.code("089633436959", language="text")
                 st.markdown("#### 2. Unggah Bukti Pembayaran")
-                st.write("Setelah transfer berhasil, unggah screenshot bukti pembayaran di bawah ini. Status pesanan akan otomatis berubah menjadi 'Diproses'.")
+                st.write("Setelah transfer berhasil, unggah screenshot bukti pembayaran di bawah ini.")
                 uploaded_proof = st.file_uploader("Pilih file bukti pembayaran Anda...", type=["png", "jpg", "jpeg"], key=f"proof_direct_{pending_trans['id']}")
                 if uploaded_proof: upload_payment_proof(pending_trans['id'], uploaded_proof)
             st.divider()
